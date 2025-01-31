@@ -53,13 +53,11 @@
 		<value>2.0</value>
 	</resheader>
 	<resheader name="reader">
-		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<resheader name="writer">
-		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<data name="PluginDisabledMissingBuildToken" xml:space="preserve">
@@ -109,13 +107,9 @@
 		<value>Đã hoàn tất thu nhận thông tin của {0} ứng dụng.</value>
 		<comment>{0} will be replaced by the number (count this batch) of app infos retrieved</comment>
 	</data>
-	<data name="BotRetrievingDepotKeys" xml:space="preserve">
-		<value>Đang thu nhận {0} khóa kho...</value>
-		<comment>{0} will be replaced by the number (count this batch) of depot keys being retrieved</comment>
-	</data>
 	<data name="BotFinishedRetrievingDepotKeys" xml:space="preserve">
-		<value>Đã hoàn tất thu nhận {0} khóa kho.</value>
-		<comment>{0} will be replaced by the number (count this batch) of depot keys retrieved</comment>
+		<value>Đã hoàn thành {0} trong tổng số {1} yêu cầu mã khóa kho.</value>
+		<comment>{0} will be replaced by the number (count this batch) of depot key requests that were successfully answered, {1} will be replaced by the number (count this batch) of depot key requests that were supposed to be sent</comment>
 	</data>
 	<data name="BotFinishedRetrievingTotalDepots" xml:space="preserve">
 		<value>Đã hoàn tất thu nhận tất cả khóa kho của tổng số {0} ứng dụng.</value>
@@ -167,5 +161,14 @@
 	<data name="PluginSecretListInitialized" xml:space="preserve">
 		<value>{0} đã được khởi tạo, plugin sẽ không can thiệp với những thứ sau: {1}.</value>
 		<comment>{0} will be replaced by the name of the config property (e.g. "SecretPackageIDs"), {1} will be replaced by list of the objects (IDs, numbers), separated by a comma</comment>
+	</data>
+	<data name="LoadingGlobalCache" xml:space="preserve">
+		<value>Đang tải bộ nhớ đệm STD chung...</value>
+	</data>
+	<data name="ValidatingGlobalCacheIntegrity" xml:space="preserve">
+		<value>Đang kiểm tra trạng thái bộ nhớ đệm STD chung...</value>
+	</data>
+	<data name="GlobalCacheIntegrityValidationFailed" xml:space="preserve">
+		<value>Không thể xác minh trạng thái bộ nhớ đệm chung STD. Điều này có khả năng do tệp/bộ nhớ bị hỏng, một trạng thái mới sẽ được khởi tạo thay thế.</value>
 	</data>
 </root>

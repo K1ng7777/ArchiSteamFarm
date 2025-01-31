@@ -1,8 +1,6 @@
 #!/usr/bin/env sh
 set -eu
 
-TARGET_FRAMEWORK="net6.0"
-
 MAIN_PROJECT="ArchiSteamFarm"
 STEAM_TOKEN_DUMPER_NAME="${MAIN_PROJECT}.OfficialPlugins.SteamTokenDumper"
 TESTS_PROJECT="${MAIN_PROJECT}.Tests"
@@ -10,7 +8,7 @@ SOLUTION="${MAIN_PROJECT}.sln"
 CONFIGURATION="Release"
 OUT="out"
 OUT_ASF="${OUT}/result"
-OUT_STD="${OUT}/${STEAM_TOKEN_DUMPER_NAME}"
+PLUGINS="${MAIN_PROJECT}.OfficialPlugins.ItemsMatcher ${MAIN_PROJECT}.OfficialPlugins.MobileAuthenticator"
 
 ANALYSIS=1
 ASF_UI=1
@@ -112,7 +110,8 @@ if [ "$ASF_UI" -eq 1 ]; then
 	fi
 fi
 
-DOTNET_FLAGS="-c $CONFIGURATION -f $TARGET_FRAMEWORK -p:ContinuousIntegrationBuild=true -p:UseAppHost=false -r ${os_type}-${cpu_architecture} --nologo --no-self-contained"
+DOTNET_FLAGS="-c $CONFIGURATION -p:ContinuousIntegrationBuild=true -p:UseAppHost=false --nologo"
+PUBLISH_FLAGS="-r ${os_type}-${cpu_architecture} --no-self-contained"
 
 if [ "$ANALYSIS" -eq 0 ]; then
 	DOTNET_FLAGS="$DOTNET_FLAGS -p:AnalysisMode=AllDisabledByDefault"
@@ -131,22 +130,28 @@ if [ "$TEST" -eq 1 ]; then
 	dotnet test "$TESTS_PROJECT" $DOTNET_FLAGS
 fi
 
-dotnet publish "$MAIN_PROJECT" -o "$OUT_ASF" $DOTNET_FLAGS
+echo "INFO: Building ${MAIN_PROJECT}..."
+
+dotnet publish "$MAIN_PROJECT" -o "$OUT_ASF" $DOTNET_FLAGS $PUBLISH_FLAGS
 
 if [ -n "${STEAM_TOKEN_DUMPER_TOKEN-}" ] && [ -f "${STEAM_TOKEN_DUMPER_NAME}/SharedInfo.cs" ] && command -v git >/dev/null; then
 	git checkout -- "${STEAM_TOKEN_DUMPER_NAME}/SharedInfo.cs"
 	sed "s/STEAM_TOKEN_DUMPER_TOKEN/${STEAM_TOKEN_DUMPER_TOKEN}/g" "${STEAM_TOKEN_DUMPER_NAME}/SharedInfo.cs" > "${STEAM_TOKEN_DUMPER_NAME}/SharedInfo.cs.new";
 	mv "${STEAM_TOKEN_DUMPER_NAME}/SharedInfo.cs.new" "${STEAM_TOKEN_DUMPER_NAME}/SharedInfo.cs"
 
-	dotnet publish "$STEAM_TOKEN_DUMPER_NAME" -o "$OUT_STD" $DOTNET_FLAGS
-	git checkout -- "${STEAM_TOKEN_DUMPER_NAME}/SharedInfo.cs"
+	echo "INFO: Building ${STEAM_TOKEN_DUMPER_NAME}..."
 
-	rm -rf "${OUT_ASF}/plugins/${STEAM_TOKEN_DUMPER_NAME}"
-	mkdir -p "${OUT_ASF}/plugins/${STEAM_TOKEN_DUMPER_NAME}"
-	cp -pR "${OUT_STD}/"*  "${OUT_ASF}/plugins/${STEAM_TOKEN_DUMPER_NAME}"
+	dotnet publish "$STEAM_TOKEN_DUMPER_NAME" -o "${OUT_ASF}/plugins/${STEAM_TOKEN_DUMPER_NAME}" $DOTNET_FLAGS $PUBLISH_FLAGS
+	git checkout -- "${STEAM_TOKEN_DUMPER_NAME}/SharedInfo.cs"
 else
 	echo "WARNING: ${STEAM_TOKEN_DUMPER_NAME} dependencies are missing, skipping build of ${STEAM_TOKEN_DUMPER_NAME}..."
 fi
+
+for plugin in $PLUGINS; do
+	echo "INFO: Building ${plugin}..."
+
+	dotnet publish "$plugin" -o "${OUT_ASF}/plugins/${plugin}" $DOTNET_FLAGS $PUBLISH_FLAGS
+done
 
 echo
 echo "SUCCESS: Compilation finished successfully! :)"

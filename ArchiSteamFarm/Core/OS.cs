@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,8 +22,9 @@
 // limitations under the License.
 
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -41,57 +44,38 @@ internal static class OS {
 	// We need to keep this one assigned and not calculated on-demand
 	internal static readonly string ProcessFileName = Environment.ProcessPath ?? throw new InvalidOperationException(nameof(ProcessFileName));
 
+	internal static string? Description => TrimAndNullifyEmptyText(RuntimeInformation.OSDescription);
+	internal static string? Framework => TrimAndNullifyEmptyText(RuntimeInformation.FrameworkDescription);
+
 	internal static DateTime ProcessStartTime {
-#if NETFRAMEWORK
-		get => RuntimeMadness.ProcessStartTime.ToUniversalTime();
-#else
 		get {
 			using Process process = Process.GetCurrentProcess();
 
 			return process.StartTime.ToUniversalTime();
 		}
-#endif
 	}
 
+	internal static string? Runtime => TrimAndNullifyEmptyText(RuntimeInformation.RuntimeIdentifier);
+
+	[field: AllowNull]
+	[field: MaybeNull]
 	internal static string Version {
 		get {
-			if (!string.IsNullOrEmpty(BackingVersion)) {
-				// ReSharper disable once RedundantSuppressNullableWarningExpression - required for .NET Framework
-				return BackingVersion!;
+			if (!string.IsNullOrEmpty(field)) {
+				return field;
 			}
 
-			string framework = RuntimeInformation.FrameworkDescription.Trim();
-
-			if (framework.Length == 0) {
-				framework = "Unknown Framework";
-			}
-
-#if NETFRAMEWORK
-			string runtime = RuntimeInformation.OSArchitecture.ToString();
-#else
-			string runtime = RuntimeInformation.RuntimeIdentifier.Trim();
-
-			if (runtime.Length == 0) {
-				runtime = "Unknown Runtime";
-			}
-#endif
-
-			string description = RuntimeInformation.OSDescription.Trim();
-
-			if (description.Length == 0) {
-				description = "Unknown OS";
-			}
-
-			BackingVersion = $"{framework}; {runtime}; {description}";
-
-			return BackingVersion;
+			return field = $"{Framework ?? "Unknown Framework"}; {Runtime ?? "Unknown Runtime"}; {Description ?? "Unknown OS"}";
 		}
 	}
 
-	private static string? BackingVersion;
 	private static Mutex? SingleInstance;
 
-	internal static void CoreInit(bool systemRequired) {
+	internal static void CoreInit(bool minimized, bool systemRequired) {
+		if (minimized) {
+			MinimizeConsoleWindow();
+		}
+
 		if (OperatingSystem.IsWindows()) {
 			if (systemRequired) {
 				WindowsKeepSystemActive();
@@ -113,16 +97,14 @@ internal static class OS {
 	}
 
 	internal static string GetOsResourceName(string objectName) {
-		if (string.IsNullOrEmpty(objectName)) {
-			throw new ArgumentNullException(nameof(objectName));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(objectName);
 
 		return $"{SharedInfo.AssemblyName}-{objectName}";
 	}
 
 	internal static void Init(GlobalConfig.EOptimizationMode optimizationMode) {
-		if (!Enum.IsDefined(typeof(GlobalConfig.EOptimizationMode), optimizationMode)) {
-			throw new ArgumentNullException(nameof(optimizationMode));
+		if (!Enum.IsDefined(optimizationMode)) {
+			throw new InvalidEnumArgumentException(nameof(optimizationMode), (int) optimizationMode, typeof(GlobalConfig.EOptimizationMode));
 		}
 
 		switch (optimizationMode) {
@@ -135,7 +117,7 @@ internal static class OS {
 
 				break;
 			default:
-				throw new ArgumentOutOfRangeException(nameof(optimizationMode));
+				throw new InvalidOperationException(nameof(optimizationMode));
 		}
 	}
 
@@ -147,7 +129,7 @@ internal static class OS {
 		}
 
 		if (OperatingSystem.IsFreeBSD() || OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()) {
-			return NativeMethods.GetEUID() == 0;
+			return NativeMethods.GetEuid() == 0;
 		}
 
 		// We can't determine whether user is running as root or not, so fallback to that not happening
@@ -168,7 +150,7 @@ internal static class OS {
 
 		for (byte i = 0; i < WebBrowser.MaxTries; i++) {
 			if (i > 0) {
-				await Task.Delay(1000).ConfigureAwait(false);
+				await Task.Delay(2000).ConfigureAwait(false);
 			}
 
 			singleInstance = new Mutex(true, uniqueName, out bool result);
@@ -190,30 +172,6 @@ internal static class OS {
 		return true;
 	}
 
-	[SupportedOSPlatform("FreeBSD")]
-	[SupportedOSPlatform("Linux")]
-	[SupportedOSPlatform("MacOS")]
-	internal static void UnixSetFileAccess(string path, EUnixPermission permission) {
-		if (string.IsNullOrEmpty(path)) {
-			throw new ArgumentNullException(nameof(path));
-		}
-
-		if (!OperatingSystem.IsFreeBSD() && !OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) {
-			throw new PlatformNotSupportedException();
-		}
-
-		if (!File.Exists(path) && !Directory.Exists(path)) {
-			ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, $"!{nameof(path)}"));
-
-			return;
-		}
-
-		// Chmod() returns 0 on success, -1 on failure
-		if (NativeMethods.Chmod(path, (int) permission) != 0) {
-			ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, Marshal.GetLastWin32Error()));
-		}
-	}
-
 	internal static void UnregisterProcess() {
 		if (SingleInstance == null) {
 			return;
@@ -226,34 +184,110 @@ internal static class OS {
 	}
 
 	internal static bool VerifyEnvironment() {
-#if NETFRAMEWORK
-		// This is .NET Framework build, we support that one only on mono for platforms not supported by .NET Core
-
 		// We're not going to analyze source builds, as we don't know what changes the author has made, assume they have a point
-		if (SharedInfo.BuildInfo.IsCustomBuild) {
+		if (BuildInfo.IsCustomBuild) {
 			return true;
 		}
 
-		// All windows variants have valid .NET Core build, and generic-netf is supported only on mono
-		if (OperatingSystem.IsWindows() || !RuntimeMadness.IsRunningOnMono) {
-			return false;
+		if (BuildInfo.Variant == "generic") {
+			// Generic is supported everywhere
+			return true;
 		}
 
-		return RuntimeInformation.OSArchitecture switch {
-			// Sadly we can't tell a difference between ARMv6 and ARMv7 reliably, we'll believe that this linux-arm user knows what he's doing and he's indeed in need of generic-netf on ARMv6
-			Architecture.Arm => true,
+		if ((BuildInfo.Variant == "docker") || BuildInfo.Variant.StartsWith("linux-", StringComparison.Ordinal)) {
+			// OS-specific Linux and Docker builds are supported only on Linux
+			return OperatingSystem.IsLinux();
+		}
 
-			// Apart from real x86, this also covers all unknown architectures, such as sparc, ppc64, and anything else Mono might support, we're fine with that
-			Architecture.X86 => true,
+		if (BuildInfo.Variant.StartsWith("osx-", StringComparison.Ordinal)) {
+			// OS-specific macOS build is supported only on macOS
+			return OperatingSystem.IsMacOS();
+		}
 
-			// Everything else is covered by .NET Core
-			_ => false
+		if (BuildInfo.Variant.StartsWith("win-", StringComparison.Ordinal)) {
+			// OS-specific Windows build is supported only on Windows
+			return OperatingSystem.IsWindows();
+		}
+
+		// Unknown combination, we intend to cover all of the available ones above, so this results in an error
+		ASF.ArchiLogger.LogGenericError(Strings.FormatWarningUnknownValuePleaseReport(nameof(BuildInfo.Variant), BuildInfo.Variant));
+
+		return false;
+	}
+
+	[SupportedOSPlatform("Windows")]
+	internal static void WindowsStartFlashingConsoleWindow() {
+		if (!OperatingSystem.IsWindows()) {
+			throw new PlatformNotSupportedException();
+		}
+
+		using Process currentProcess = Process.GetCurrentProcess();
+
+		nint handle = currentProcess.MainWindowHandle;
+
+		if (handle == nint.Zero) {
+			return;
+		}
+
+		NativeMethods.FlashWindowInfo flashInfo = new() {
+			StructSize = (uint) Marshal.SizeOf<NativeMethods.FlashWindowInfo>(),
+			Flags = NativeMethods.EFlashFlags.All | NativeMethods.EFlashFlags.Timer,
+			WindowHandle = handle,
+			Count = uint.MaxValue
 		};
-#else
 
-		// This is .NET Core build, we support all scenarios
-		return true;
-#endif
+		NativeMethods.FlashWindowEx(ref flashInfo);
+	}
+
+	[SupportedOSPlatform("Windows")]
+	internal static void WindowsStopFlashingConsoleWindow() {
+		if (!OperatingSystem.IsWindows()) {
+			throw new PlatformNotSupportedException();
+		}
+
+		using Process currentProcess = Process.GetCurrentProcess();
+		nint handle = currentProcess.MainWindowHandle;
+
+		if (handle == nint.Zero) {
+			return;
+		}
+
+		NativeMethods.FlashWindowInfo flashInfo = new() {
+			StructSize = (uint) Marshal.SizeOf<NativeMethods.FlashWindowInfo>(),
+			Flags = NativeMethods.EFlashFlags.Stop,
+			WindowHandle = handle
+		};
+
+		NativeMethods.FlashWindowEx(ref flashInfo);
+	}
+
+	private static void MinimizeConsoleWindow() {
+		(_, int top) = Console.GetCursorPosition();
+
+		// Will work if the terminal supports XTWINOPS "iconify" escape sequence, reference: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+		Console.Write('\x1b' + @"[2;0;0t");
+
+		// Reset cursor position if terminal outputs escape sequences as-is
+		Console.SetCursorPosition(0, top);
+
+		// Fallback if we're using conhost on Windows
+		if (OperatingSystem.IsWindows()) {
+			using Process process = Process.GetCurrentProcess();
+
+			nint windowHandle = process.MainWindowHandle;
+
+			if (windowHandle != nint.Zero) {
+				NativeMethods.ShowWindow(windowHandle, NativeMethods.EShowWindow.Minimize);
+			}
+		}
+	}
+
+	private static string? TrimAndNullifyEmptyText(string text) {
+		ArgumentNullException.ThrowIfNull(text);
+
+		text = text.Trim();
+
+		return text.Length > 0 ? text : null;
 	}
 
 	[SupportedOSPlatform("Windows")]
@@ -262,15 +296,15 @@ internal static class OS {
 			throw new PlatformNotSupportedException();
 		}
 
-		IntPtr consoleHandle = NativeMethods.GetStdHandle(NativeMethods.StandardInputHandle);
+		nint consoleHandle = NativeMethods.GetStdHandle(NativeMethods.EStandardHandle.Input);
 
-		if (!NativeMethods.GetConsoleMode(consoleHandle, out uint consoleMode)) {
+		if (!NativeMethods.GetConsoleMode(consoleHandle, out NativeMethods.EConsoleMode consoleMode)) {
 			ASF.ArchiLogger.LogGenericError(Strings.WarningFailed);
 
 			return;
 		}
 
-		consoleMode &= ~NativeMethods.EnableQuickEditMode;
+		consoleMode &= ~NativeMethods.EConsoleMode.EnableQuickEditMode;
 
 		if (!NativeMethods.SetConsoleMode(consoleHandle, consoleMode)) {
 			ASF.ArchiLogger.LogGenericError(Strings.WarningFailed);
@@ -284,86 +318,13 @@ internal static class OS {
 		}
 
 		// This function calls unmanaged API in order to tell Windows OS that it should not enter sleep state while the program is running
-		// If user wishes to enter sleep mode, then he should use ShutdownOnFarmingFinished or manage ASF process with third-party tool or script
+		// If user wishes to enter sleep mode, then they should use ShutdownOnFarmingFinished or manage the ASF process with third-party tool or script
 		// See https://docs.microsoft.com/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate for more details
-		NativeMethods.EExecutionState result = NativeMethods.SetThreadExecutionState(NativeMethods.AwakeExecutionState);
+		NativeMethods.EExecutionState result = NativeMethods.SetThreadExecutionState(NativeMethods.EExecutionState.Awake);
 
 		// SetThreadExecutionState() returns NULL on failure, which is mapped to 0 (EExecutionState.None) in our case
 		if (result == NativeMethods.EExecutionState.None) {
-			ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningFailedWithError, result));
-		}
-	}
-
-	[Flags]
-	[SupportedOSPlatform("FreeBSD")]
-	[SupportedOSPlatform("Linux")]
-	[SupportedOSPlatform("MacOS")]
-	internal enum EUnixPermission : ushort {
-		OtherExecute = 0x1,
-		OtherWrite = 0x2,
-		OtherRead = 0x4,
-		GroupExecute = 0x8,
-		GroupWrite = 0x10,
-		GroupRead = 0x20,
-		UserExecute = 0x40,
-		UserWrite = 0x80,
-		UserRead = 0x100,
-		Combined777 = UserRead | UserWrite | UserExecute | GroupRead | GroupWrite | GroupExecute | OtherRead | OtherWrite | OtherExecute
-	}
-
-	private static class NativeMethods {
-		[SupportedOSPlatform("Windows")]
-		internal const EExecutionState AwakeExecutionState = EExecutionState.SystemRequired | EExecutionState.AwayModeRequired | EExecutionState.Continuous;
-
-		[SupportedOSPlatform("Windows")]
-		internal const uint EnableQuickEditMode = 0x0040;
-
-		[SupportedOSPlatform("Windows")]
-		internal const sbyte StandardInputHandle = -10;
-
-#pragma warning disable CA2101 // False positive, we can't use unicode charset on Unix, and it uses UTF-8 by default anyway
-		[DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-		[DllImport("libc", EntryPoint = "chmod", SetLastError = true)]
-		[SupportedOSPlatform("FreeBSD")]
-		[SupportedOSPlatform("Linux")]
-		[SupportedOSPlatform("MacOS")]
-		internal static extern int Chmod(string path, int mode);
-#pragma warning restore CA2101 // False positive, we can't use unicode charset on Unix, and it uses UTF-8 by default anyway
-
-		[DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-		[DllImport("kernel32.dll")]
-		[SupportedOSPlatform("Windows")]
-		internal static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
-
-		[DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-		[DllImport("libc", EntryPoint = "geteuid", SetLastError = true)]
-		[SupportedOSPlatform("FreeBSD")]
-		[SupportedOSPlatform("Linux")]
-		[SupportedOSPlatform("MacOS")]
-		internal static extern uint GetEUID();
-
-		[DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-		[DllImport("kernel32.dll")]
-		[SupportedOSPlatform("Windows")]
-		internal static extern IntPtr GetStdHandle(int nStdHandle);
-
-		[DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-		[DllImport("kernel32.dll")]
-		[SupportedOSPlatform("Windows")]
-		internal static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
-
-		[DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-		[DllImport("kernel32.dll")]
-		[SupportedOSPlatform("Windows")]
-		internal static extern EExecutionState SetThreadExecutionState(EExecutionState executionState);
-
-		[Flags]
-		[SupportedOSPlatform("Windows")]
-		internal enum EExecutionState : uint {
-			None = 0,
-			SystemRequired = 0x00000001,
-			AwayModeRequired = 0x00000040,
-			Continuous = 0x80000000
+			ASF.ArchiLogger.LogGenericError(Strings.FormatWarningFailedWithError(result));
 		}
 	}
 }

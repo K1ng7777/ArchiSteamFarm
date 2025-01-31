@@ -4,15 +4,9 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="ConfigureAwaitChecker.Analyzer" PrivateAssets="all" />
-		<PackageReference Include="Newtonsoft.Json" IncludeAssets="compile" />
+		<PackageReference Include="JetBrains.Annotations" PrivateAssets="all" />
 		<PackageReference Include="SteamKit2" IncludeAssets="compile" />
 		<PackageReference Include="System.Composition.AttributedModel" IncludeAssets="compile" />
-	</ItemGroup>
-
-	<ItemGroup Condition="'$(TargetFramework)' == 'net48'">
-		<PackageReference Include="JustArchiNET.Madness" IncludeAssets="compile" />
-		<PackageReference Include="Microsoft.AspNetCore.Mvc.Core" IncludeAssets="compile" />
 	</ItemGroup>
 
 	<ItemGroup>

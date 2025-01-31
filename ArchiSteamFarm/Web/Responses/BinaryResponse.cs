@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,15 +29,16 @@ namespace ArchiSteamFarm.Web.Responses;
 
 public sealed class BinaryResponse : BasicResponse {
 	[PublicAPI]
-	public IReadOnlyCollection<byte> Content => Bytes;
+	public IReadOnlyCollection<byte>? Content => Bytes;
 
-	private readonly byte[] Bytes;
+	private readonly byte[]? Bytes;
 
-	public BinaryResponse(BasicResponse basicResponse, byte[] bytes) : base(basicResponse) {
-		if (basicResponse == null) {
-			throw new ArgumentNullException(nameof(basicResponse));
-		}
+	public BinaryResponse(BasicResponse basicResponse, byte[] bytes) : this(basicResponse) {
+		ArgumentNullException.ThrowIfNull(basicResponse);
+		ArgumentNullException.ThrowIfNull(bytes);
 
-		Bytes = bytes ?? throw new ArgumentNullException(nameof(bytes));
+		Bytes = bytes;
 	}
+
+	public BinaryResponse(BasicResponse basicResponse) : base(basicResponse) => ArgumentNullException.ThrowIfNull(basicResponse);
 }

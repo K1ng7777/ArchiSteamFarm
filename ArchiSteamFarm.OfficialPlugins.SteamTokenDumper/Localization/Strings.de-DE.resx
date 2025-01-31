@@ -53,13 +53,11 @@
 		<value>2.0</value>
 	</resheader>
 	<resheader name="reader">
-		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<resheader name="writer">
-		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<data name="PluginDisabledMissingBuildToken" xml:space="preserve">
@@ -71,7 +69,7 @@
 		<comment>{0} will be replaced by the name of the plugin (e.g. "SteamTokenDumperPlugin")</comment>
 	</data>
 	<data name="PluginInitializedAndEnabled" xml:space="preserve">
-		<value>{0} wurde erfolgreich initialisiert. Wir danken Ihnen im Voraus für Ihre Hilfe. Die erste Übermittlung wird in etwa {1} ab jetzt erfolgen.</value>
+		<value>{0} wurde erfolgreich initialisiert. Wir danken Ihnen im Voraus für Ihre Hilfe. Die erste Übermittlung wird in etwa {1} erfolgen.</value>
 		<comment>{0} will be replaced by the name of the plugin (e.g. "SteamTokenDumperPlugin"), {1} will be replaced by translated TimeSpan string (such as "53 minutes")</comment>
 	</data>
 	<data name="FileCouldNotBeLoadedFreshInit" xml:space="preserve">
@@ -109,13 +107,9 @@
 		<value>Abruf von {0} App-Infos abgeschlossen.</value>
 		<comment>{0} will be replaced by the number (count this batch) of app infos retrieved</comment>
 	</data>
-	<data name="BotRetrievingDepotKeys" xml:space="preserve">
-		<value>Rufe {0} Depotschlüssel ab...</value>
-		<comment>{0} will be replaced by the number (count this batch) of depot keys being retrieved</comment>
-	</data>
 	<data name="BotFinishedRetrievingDepotKeys" xml:space="preserve">
-		<value>Abruf von {0} Depotschlüsseln abgeschlossen.</value>
-		<comment>{0} will be replaced by the number (count this batch) of depot keys retrieved</comment>
+		<value>{0} von {1} Depot-Schlüsselanfragen beendet.</value>
+		<comment>{0} will be replaced by the number (count this batch) of depot key requests that were successfully answered, {1} will be replaced by the number (count this batch) of depot key requests that were supposed to be sent</comment>
 	</data>
 	<data name="BotFinishedRetrievingTotalDepots" xml:space="preserve">
 		<value>Abruf aller Depotschlüssel für insgesamt {0} Apps abgeschlossen.</value>
@@ -167,5 +161,14 @@
 	<data name="PluginSecretListInitialized" xml:space="preserve">
 		<value>{0} wurde initialisiert, das Plugin wird keinen der folgenden Werte verarbeiten: {1}.</value>
 		<comment>{0} will be replaced by the name of the config property (e.g. "SecretPackageIDs"), {1} will be replaced by list of the objects (IDs, numbers), separated by a comma</comment>
+	</data>
+	<data name="LoadingGlobalCache" xml:space="preserve">
+		<value>Globaler STD-Cache wird geladen...</value>
+	</data>
+	<data name="ValidatingGlobalCacheIntegrity" xml:space="preserve">
+		<value>Überprüfe STD globale Cache-Integrität...</value>
+	</data>
+	<data name="GlobalCacheIntegrityValidationFailed" xml:space="preserve">
+		<value>Fehler beim Überprüfen der globalen STD-Cache-Integrität. Dies deutet auf eine mögliche Datei-/Speicher-Beschädigung hin; stattdessen wird eine neue Instanz initialisiert.</value>
 	</data>
 </root>

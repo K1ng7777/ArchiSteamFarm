@@ -53,13 +53,11 @@
 		<value>2.0</value>
 	</resheader>
 	<resheader name="reader">
-		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<resheader name="writer">
-		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral,
-			PublicKeyToken=b77a5c561934e089
+		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089
 		</value>
 	</resheader>
 	<data name="PluginDisabledMissingBuildToken" xml:space="preserve">
@@ -70,10 +68,7 @@
 		<value>{0} είναι απενεργοποιημένο σύμφωνα με τις ρυθμίσεις σας. Αν θέλετε να βοηθήσετε το SteamDB στην υποβολή δεδομένων, παρακαλώ ελέγξτε το wiki μας.</value>
 		<comment>{0} will be replaced by the name of the plugin (e.g. "SteamTokenDumperPlugin")</comment>
 	</data>
-	<data name="PluginInitializedAndEnabled" xml:space="preserve">
-		<value>{0} έχει αρχικοποιηθεί με επιτυχία, σας ευχαριστώ εκ των προτέρων για τη βοήθειά σας. Η πρώτη υποβολή θα γίνει σε περίπου {1} από τώρα.</value>
-		<comment>{0} will be replaced by the name of the plugin (e.g. "SteamTokenDumperPlugin"), {1} will be replaced by translated TimeSpan string (such as "53 minutes")</comment>
-	</data>
+	
 	<data name="FileCouldNotBeLoadedFreshInit" xml:space="preserve">
 		<value>{0} δεν μπόρεσε να φορτωθεί, μια νέα παρουσία θα αρχικοποιηθεί...</value>
 		<comment>{0} will be replaced by the name of the file (e.g. "GlobalCache")</comment>
@@ -109,14 +104,7 @@
 		<value>Ολοκληρώθηκε η ανάκτηση {0} πληροφοριών εφαρμογών.</value>
 		<comment>{0} will be replaced by the number (count this batch) of app infos retrieved</comment>
 	</data>
-	<data name="BotRetrievingDepotKeys" xml:space="preserve">
-		<value>Ανάκτηση {0} κλειδιών αποθήκης...</value>
-		<comment>{0} will be replaced by the number (count this batch) of depot keys being retrieved</comment>
-	</data>
-	<data name="BotFinishedRetrievingDepotKeys" xml:space="preserve">
-		<value>Ολοκληρώθηκε η ανάκτηση {0} κλειδιών αποθήκευσης.</value>
-		<comment>{0} will be replaced by the number (count this batch) of depot keys retrieved</comment>
-	</data>
+	
 	<data name="BotFinishedRetrievingTotalDepots" xml:space="preserve">
 		<value>Ολοκληρώθηκε η ανάκτηση όλων των κλειδιών αποθηκών για συνολικά {0} εφαρμογές.</value>
 		<comment>{0} will be replaced by the number (total count) of apps retrieved</comment>
@@ -167,5 +155,14 @@
 	<data name="PluginSecretListInitialized" xml:space="preserve">
 		<value>{0} αρχικοποιήθηκε, το plugin δεν θα επιλύσει κανένα από αυτά: {1}.</value>
 		<comment>{0} will be replaced by the name of the config property (e.g. "SecretPackageIDs"), {1} will be replaced by list of the objects (IDs, numbers), separated by a comma</comment>
+	</data>
+	<data name="LoadingGlobalCache" xml:space="preserve">
+		<value>Φόρτωση καθολικής μνήμης cache...</value>
+	</data>
+	<data name="ValidatingGlobalCacheIntegrity" xml:space="preserve">
+		<value>Επικύρωση ακεραιότητας καθολικής λανθάνουσας μνήμης STD...</value>
+	</data>
+	<data name="GlobalCacheIntegrityValidationFailed" xml:space="preserve">
+		<value>Αποτυχία επαλήθευσης ακεραιότητας καθολικής λανθάνουσας μνήμης STD. Αυτό υποδηλώνει πιθανή διαφθορά αρχείου/μνήμης, αντ' αυτού θα ξεκινήσει μια νέα διεργασία.</value>
 	</data>
 </root>

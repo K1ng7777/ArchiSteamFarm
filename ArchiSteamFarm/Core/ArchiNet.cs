@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,72 +24,30 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
-using ArchiSteamFarm.Localization;
+using AngleSharp.Dom;
+using ArchiSteamFarm.Helpers;
+using ArchiSteamFarm.IPC.Responses;
 using ArchiSteamFarm.Steam;
-using ArchiSteamFarm.Steam.Data;
-using ArchiSteamFarm.Steam.Storage;
+using ArchiSteamFarm.Steam.Integration;
 using ArchiSteamFarm.Web;
 using ArchiSteamFarm.Web.Responses;
-using Newtonsoft.Json;
+using SteamKit2;
 
 namespace ArchiSteamFarm.Core;
 
 internal static class ArchiNet {
-	private static Uri URL => new("https://asf.JustArchi.net");
+	internal static Uri URL => new("https://asf.JustArchi.net");
 
-	internal static async Task<HttpStatusCode?> AnnounceForListing(Bot bot, IReadOnlyCollection<Asset> inventory, IReadOnlyCollection<Asset.EType> acceptedMatchableTypes, string tradeToken, string? nickname = null, string? avatarHash = null) {
-		if (bot == null) {
-			throw new ArgumentNullException(nameof(bot));
-		}
+	private static readonly ArchiCacheable<IReadOnlyCollection<ulong>> CachedBadBots = new(ResolveCachedBadBots, TimeSpan.FromDays(1));
 
-		if ((inventory == null) || (inventory.Count == 0)) {
-			throw new ArgumentNullException(nameof(inventory));
-		}
-
-		if ((acceptedMatchableTypes == null) || (acceptedMatchableTypes.Count == 0)) {
-			throw new ArgumentNullException(nameof(acceptedMatchableTypes));
-		}
-
-		if (string.IsNullOrEmpty(tradeToken)) {
-			throw new ArgumentNullException(nameof(tradeToken));
-		}
-
-		if (tradeToken.Length != BotConfig.SteamTradeTokenLength) {
-			throw new ArgumentOutOfRangeException(nameof(tradeToken));
-		}
-
-		Uri request = new(URL, "/Api/Announce");
-
-		Dictionary<string, string> data = new(9, StringComparer.Ordinal) {
-			{ "AvatarHash", avatarHash ?? "" },
-			{ "GamesCount", inventory.Select(static item => item.RealAppID).Distinct().Count().ToString(CultureInfo.InvariantCulture) },
-			{ "Guid", (ASF.GlobalDatabase?.Identifier ?? Guid.NewGuid()).ToString("N") },
-			{ "ItemsCount", inventory.Count.ToString(CultureInfo.InvariantCulture) },
-			{ "MatchableTypes", JsonConvert.SerializeObject(acceptedMatchableTypes) },
-			{ "MatchEverything", bot.BotConfig.TradingPreferences.HasFlag(BotConfig.ETradingPreferences.MatchEverything) ? "1" : "0" },
-			{ "Nickname", nickname ?? "" },
-			{ "SteamID", bot.SteamID.ToString(CultureInfo.InvariantCulture) },
-			{ "TradeToken", tradeToken }
-		};
-
-		BasicResponse? response = await bot.ArchiWebHandler.WebBrowser.UrlPost(request, data: data, requestOptions: WebBrowser.ERequestOptions.ReturnClientErrors).ConfigureAwait(false);
-
-		return response?.StatusCode;
-	}
-
-	internal static async Task<string?> FetchBuildChecksum(Version version, string variant) {
-		if (version == null) {
-			throw new ArgumentNullException(nameof(version));
-		}
-
-		if (string.IsNullOrEmpty(variant)) {
-			throw new ArgumentNullException(nameof(variant));
-		}
+	internal static async Task<string?> FetchBuildChecksum(Version version, string variant, CancellationToken cancellationToken = default) {
+		ArgumentNullException.ThrowIfNull(version);
+		ArgumentException.ThrowIfNullOrEmpty(variant);
 
 		if (ASF.WebBrowser == null) {
 			throw new InvalidOperationException(nameof(ASF.WebBrowser));
@@ -95,182 +55,159 @@ internal static class ArchiNet {
 
 		Uri request = new(URL, $"/Api/Checksum/{version}/{variant}");
 
-		ObjectResponse<ChecksumResponse>? response = await ASF.WebBrowser.UrlGetToJsonObject<ChecksumResponse>(request).ConfigureAwait(false);
+		ObjectResponse<GenericResponse<string>>? response;
 
-		if (response == null) {
+		try {
+			response = await ASF.WebBrowser.UrlGetToJsonObject<GenericResponse<string>>(request, cancellationToken: cancellationToken).ConfigureAwait(false);
+		} catch (OperationCanceledException e) {
+			ASF.ArchiLogger.LogGenericDebuggingException(e);
+
 			return null;
 		}
 
-		return response.Content.Checksum ?? "";
+		if (response?.Content == null) {
+			return null;
+		}
+
+		return response.Content.Result ?? "";
 	}
 
-	internal static async Task<ImmutableHashSet<ListedUser>?> GetListedUsers(Bot bot) {
-		if (bot == null) {
-			throw new ArgumentNullException(nameof(bot));
+	internal static async Task<bool?> IsBadBot(ulong steamID, CancellationToken cancellationToken = default) {
+		if ((steamID == 0) || !new SteamID(steamID).IsIndividualAccount) {
+			throw new ArgumentOutOfRangeException(nameof(steamID));
 		}
 
-		Uri request = new(URL, "/Api/Bots");
+		(_, IReadOnlyCollection<ulong>? badBots) = await CachedBadBots.GetValue(ECacheFallback.FailedNow, cancellationToken).ConfigureAwait(false);
 
-		ObjectResponse<ImmutableHashSet<ListedUser>>? response = await bot.ArchiWebHandler.WebBrowser.UrlGetToJsonObject<ImmutableHashSet<ListedUser>>(request).ConfigureAwait(false);
-
-		return response?.Content;
+		return badBots?.Contains(steamID);
 	}
 
-	internal static async Task<HttpStatusCode?> HeartBeatForListing(Bot bot) {
-		if (bot == null) {
-			throw new ArgumentNullException(nameof(bot));
+	internal static async Task<HttpStatusCode?> SignInWithSteam(Bot bot, WebBrowser webBrowser, CancellationToken cancellationToken = default) {
+		ArgumentNullException.ThrowIfNull(bot);
+		ArgumentNullException.ThrowIfNull(webBrowser);
+
+		if (!bot.IsConnectedAndLoggedOn) {
+			return null;
 		}
 
-		Uri request = new(URL, "/Api/HeartBeat");
+		// We expect data or redirection to Steam OpenID
+		Uri authenticateRequest = new(URL, $"/Api/Steam/Authenticate?steamID={bot.SteamID}");
 
-		Dictionary<string, string> data = new(2, StringComparer.Ordinal) {
-			{ "Guid", (ASF.GlobalDatabase?.Identifier ?? Guid.NewGuid()).ToString("N") },
-			{ "SteamID", bot.SteamID.ToString(CultureInfo.InvariantCulture) }
-		};
+		ObjectResponse<GenericResponse<ulong>>? authenticateResponse = await webBrowser.UrlGetToJsonObject<GenericResponse<ulong>>(authenticateRequest, requestOptions: WebBrowser.ERequestOptions.ReturnRedirections | WebBrowser.ERequestOptions.ReturnClientErrors | WebBrowser.ERequestOptions.AllowInvalidBodyOnErrors, cancellationToken: cancellationToken).ConfigureAwait(false);
 
-		BasicResponse? response = await bot.ArchiWebHandler.WebBrowser.UrlPost(request, data: data, requestOptions: WebBrowser.ERequestOptions.ReturnClientErrors).ConfigureAwait(false);
+		if (authenticateResponse == null) {
+			return null;
+		}
 
-		return response?.StatusCode;
+		if (authenticateResponse.StatusCode.IsClientErrorCode()) {
+			return authenticateResponse.StatusCode;
+		}
+
+		if (authenticateResponse.StatusCode.IsSuccessCode()) {
+			return authenticateResponse.Content?.Result == bot.SteamID ? HttpStatusCode.OK : HttpStatusCode.Unauthorized;
+		}
+
+		// We've got a redirection, initiate OpenID procedure by following it
+		using HtmlDocumentResponse? challengeResponse = await bot.ArchiWebHandler.UrlGetToHtmlDocumentWithSession(authenticateResponse.FinalUri, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+		if (challengeResponse?.Content == null) {
+			return null;
+		}
+
+		IAttr? paramsNode = challengeResponse.Content.SelectSingleNode<IAttr>("//input[@name='openidparams']/@value");
+
+		if (paramsNode == null) {
+			ASF.ArchiLogger.LogNullError(paramsNode);
+
+			return null;
+		}
+
+		string paramsValue = paramsNode.Value;
+
+		if (string.IsNullOrEmpty(paramsValue)) {
+			ASF.ArchiLogger.LogNullError(paramsValue);
+
+			return null;
+		}
+
+		IAttr? nonceNode = challengeResponse.Content.SelectSingleNode<IAttr>("//input[@name='nonce']/@value");
+
+		if (nonceNode == null) {
+			ASF.ArchiLogger.LogNullError(nonceNode);
+
+			return null;
+		}
+
+		string nonceValue = nonceNode.Value;
+
+		if (string.IsNullOrEmpty(nonceValue)) {
+			ASF.ArchiLogger.LogNullError(nonceValue);
+
+			return null;
+		}
+
+		Uri loginRequest = new(ArchiWebHandler.SteamCommunityURL, "/openid/login");
+
+		using StringContent actionContent = new("steam_openid_login");
+		using StringContent modeContent = new("checkid_setup");
+		using StringContent paramsContent = new(paramsValue);
+		using StringContent nonceContent = new(nonceValue);
+
+		using MultipartFormDataContent data = new();
+
+		data.Add(actionContent, "action");
+		data.Add(modeContent, "openid.mode");
+		data.Add(paramsContent, "openidparams");
+		data.Add(nonceContent, "nonce");
+
+		// Accept OpenID request presented and follow redirection back to the data we initially expected
+		BasicResponse? loginResponse = await bot.ArchiWebHandler.WebBrowser.UrlPost(loginRequest, data: data, requestOptions: WebBrowser.ERequestOptions.ReturnRedirections, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+		if (loginResponse == null) {
+			return null;
+		}
+
+		// We've got a final redirection, follow it and complete login procedure
+		authenticateResponse = await webBrowser.UrlGetToJsonObject<GenericResponse<ulong>>(loginResponse.FinalUri, requestOptions: WebBrowser.ERequestOptions.ReturnClientErrors | WebBrowser.ERequestOptions.AllowInvalidBodyOnErrors, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+		if (authenticateResponse == null) {
+			return null;
+		}
+
+		if (authenticateResponse.StatusCode.IsClientErrorCode()) {
+			return authenticateResponse.StatusCode;
+		}
+
+		return authenticateResponse.Content?.Result == bot.SteamID ? HttpStatusCode.OK : HttpStatusCode.Unauthorized;
 	}
 
-	[SuppressMessage("ReSharper", "ClassCannotBeInstantiated")]
-	internal sealed class ListedUser {
-#pragma warning disable CS0649 // False positive, it's a field set during json deserialization
-		[JsonProperty(PropertyName = "items_count", Required = Required.Always)]
-		internal readonly ushort ItemsCount;
-#pragma warning restore CS0649 // False positive, it's a field set during json deserialization
-
-		internal readonly HashSet<Asset.EType> MatchableTypes = new();
-
-#pragma warning disable CS0649 // False positive, it's a field set during json deserialization
-		[JsonProperty(PropertyName = "steam_id", Required = Required.Always)]
-		internal readonly ulong SteamID;
-#pragma warning restore CS0649 // False positive, it's a field set during json deserialization
-
-		[JsonProperty(PropertyName = "trade_token", Required = Required.Always)]
-		internal readonly string TradeToken = "";
-
-		internal float Score => GamesCount / (float) ItemsCount;
-
-#pragma warning disable CS0649 // False positive, it's a field set during json deserialization
-		[JsonProperty(PropertyName = "games_count", Required = Required.Always)]
-		private readonly ushort GamesCount;
-#pragma warning restore CS0649 // False positive, it's a field set during json deserialization
-
-		internal bool MatchEverything { get; private set; }
-
-		[JsonProperty(PropertyName = "matchable_backgrounds", Required = Required.Always)]
-		private byte MatchableBackgroundsNumber {
-			set {
-				switch (value) {
-					case 0:
-						MatchableTypes.Remove(Asset.EType.ProfileBackground);
-
-						break;
-					case 1:
-						MatchableTypes.Add(Asset.EType.ProfileBackground);
-
-						break;
-					default:
-						ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(value), value));
-
-						return;
-				}
-			}
+	private static async Task<(bool Success, IReadOnlyCollection<ulong>? Result)> ResolveCachedBadBots(CancellationToken cancellationToken = default) {
+		if (ASF.GlobalDatabase == null) {
+			throw new InvalidOperationException(nameof(ASF.WebBrowser));
 		}
 
-		[JsonProperty(PropertyName = "matchable_cards", Required = Required.Always)]
-		private byte MatchableCardsNumber {
-			set {
-				switch (value) {
-					case 0:
-						MatchableTypes.Remove(Asset.EType.TradingCard);
-
-						break;
-					case 1:
-						MatchableTypes.Add(Asset.EType.TradingCard);
-
-						break;
-					default:
-						ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(value), value));
-
-						return;
-				}
-			}
+		if (ASF.WebBrowser == null) {
+			throw new InvalidOperationException(nameof(ASF.WebBrowser));
 		}
 
-		[JsonProperty(PropertyName = "matchable_emoticons", Required = Required.Always)]
-		private byte MatchableEmoticonsNumber {
-			set {
-				switch (value) {
-					case 0:
-						MatchableTypes.Remove(Asset.EType.Emoticon);
+		Uri request = new(URL, "/Api/BadBots");
 
-						break;
-					case 1:
-						MatchableTypes.Add(Asset.EType.Emoticon);
+		ObjectResponse<GenericResponse<ImmutableHashSet<ulong>>>? response;
 
-						break;
-					default:
-						ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(value), value));
+		try {
+			response = await ASF.WebBrowser.UrlGetToJsonObject<GenericResponse<ImmutableHashSet<ulong>>>(request, cancellationToken: cancellationToken).ConfigureAwait(false);
+		} catch (OperationCanceledException e) {
+			ASF.ArchiLogger.LogGenericDebuggingException(e);
 
-						return;
-				}
-			}
+			return (false, ASF.GlobalDatabase.CachedBadBots);
 		}
 
-		[JsonProperty(PropertyName = "matchable_foil_cards", Required = Required.Always)]
-		private byte MatchableFoilCardsNumber {
-			set {
-				switch (value) {
-					case 0:
-						MatchableTypes.Remove(Asset.EType.FoilTradingCard);
-
-						break;
-					case 1:
-						MatchableTypes.Add(Asset.EType.FoilTradingCard);
-
-						break;
-					default:
-						ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(value), value));
-
-						return;
-				}
-			}
+		if (response?.Content?.Result == null) {
+			return (false, ASF.GlobalDatabase.CachedBadBots);
 		}
 
-		[JsonProperty(PropertyName = "match_everything", Required = Required.Always)]
-		private byte MatchEverythingNumber {
-			set {
-				switch (value) {
-					case 0:
-						MatchEverything = false;
+		ASF.GlobalDatabase.CachedBadBots.ReplaceIfNeededWith(response.Content.Result);
 
-						break;
-					case 1:
-						MatchEverything = true;
-
-						break;
-					default:
-						ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(value), value));
-
-						return;
-				}
-			}
-		}
-
-		[JsonConstructor]
-		private ListedUser() { }
-	}
-
-	[SuppressMessage("ReSharper", "ClassCannotBeInstantiated")]
-	private sealed class ChecksumResponse {
-#pragma warning disable CS0649 // False positive, the field is used during json deserialization
-		[JsonProperty("checksum", Required = Required.AllowNull)]
-		internal readonly string? Checksum;
-#pragma warning restore CS0649 // False positive, the field is used during json deserialization
-
-		[JsonConstructor]
-		private ChecksumResponse() { }
+		return (true, response.Content.Result);
 	}
 }
