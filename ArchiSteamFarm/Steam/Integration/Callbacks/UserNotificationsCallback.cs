@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +23,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using ArchiSteamFarm.Core;
 using ArchiSteamFarm.Localization;
 using JetBrains.Annotations;
@@ -34,13 +35,8 @@ public sealed class UserNotificationsCallback : CallbackMsg {
 	internal readonly Dictionary<EUserNotification, uint> Notifications;
 
 	internal UserNotificationsCallback(JobID jobID, CMsgClientUserNotifications msg) {
-		if (jobID == null) {
-			throw new ArgumentNullException(nameof(jobID));
-		}
-
-		if (msg == null) {
-			throw new ArgumentNullException(nameof(msg));
-		}
+		ArgumentNullException.ThrowIfNull(jobID);
+		ArgumentNullException.ThrowIfNull(msg);
 
 		JobID = jobID;
 
@@ -68,7 +64,7 @@ public sealed class UserNotificationsCallback : CallbackMsg {
 				case EUserNotification.Trading:
 					break;
 				default:
-					ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.WarningUnknownValuePleaseReport, nameof(type), type));
+					ASF.ArchiLogger.LogGenericError(Strings.FormatWarningUnknownValuePleaseReport(nameof(type), type));
 
 					break;
 			}
@@ -78,26 +74,16 @@ public sealed class UserNotificationsCallback : CallbackMsg {
 	}
 
 	internal UserNotificationsCallback(JobID jobID, CMsgClientItemAnnouncements msg) {
-		if (jobID == null) {
-			throw new ArgumentNullException(nameof(jobID));
-		}
-
-		if (msg == null) {
-			throw new ArgumentNullException(nameof(msg));
-		}
+		ArgumentNullException.ThrowIfNull(jobID);
+		ArgumentNullException.ThrowIfNull(msg);
 
 		JobID = jobID;
 		Notifications = new Dictionary<EUserNotification, uint>(1) { { EUserNotification.Items, msg.count_new_items } };
 	}
 
 	internal UserNotificationsCallback(JobID jobID, CMsgClientCommentNotifications msg) {
-		if (jobID == null) {
-			throw new ArgumentNullException(nameof(jobID));
-		}
-
-		if (msg == null) {
-			throw new ArgumentNullException(nameof(msg));
-		}
+		ArgumentNullException.ThrowIfNull(jobID);
+		ArgumentNullException.ThrowIfNull(msg);
 
 		JobID = jobID;
 		Notifications = new Dictionary<EUserNotification, uint>(1) { { EUserNotification.Comments, msg.count_new_comments + msg.count_new_comments_owner + msg.count_new_comments_subscriptions } };

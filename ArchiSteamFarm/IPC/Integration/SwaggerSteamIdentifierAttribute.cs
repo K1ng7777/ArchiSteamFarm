@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,15 +30,13 @@ namespace ArchiSteamFarm.IPC.Integration;
 
 [PublicAPI]
 public sealed class SwaggerSteamIdentifierAttribute : CustomSwaggerAttribute {
-	public EAccountType AccountType { get; set; } = EAccountType.Individual;
-	public uint MaximumAccountID { get; set; } = uint.MaxValue;
-	public uint MinimumAccountID { get; set; } = 1;
-	public EUniverse Universe { get; set; } = EUniverse.Public;
+	public EAccountType AccountType { get; init; } = EAccountType.Individual;
+	public uint MaximumAccountID { get; init; } = uint.MaxValue;
+	public uint MinimumAccountID { get; init; } = 1;
+	public EUniverse Universe { get; init; } = EUniverse.Public;
 
 	public override void Apply(OpenApiSchema schema) {
-		if (schema == null) {
-			throw new ArgumentNullException(nameof(schema));
-		}
+		ArgumentNullException.ThrowIfNull(schema);
 
 		schema.Minimum = new SteamID(MinimumAccountID, Universe, AccountType);
 		schema.Maximum = new SteamID(MaximumAccountID, Universe, AccountType);

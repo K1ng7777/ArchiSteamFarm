@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,12 +21,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using System.Threading.Tasks;
 using ArchiSteamFarm.Steam;
 using JetBrains.Annotations;
 using SteamKit2;
 
 namespace ArchiSteamFarm.Plugins.Interfaces;
 
+/// <inheritdoc />
+/// <summary>
+///     Implementing this interface allows you to monitor Bot's connection with the Steam network, in particular when it goes online and offline.
+/// </summary>
 [PublicAPI]
 public interface IBotConnection : IPlugin {
 	/// <summary>
@@ -32,11 +39,11 @@ public interface IBotConnection : IPlugin {
 	/// </summary>
 	/// <param name="bot">Bot object related to this callback.</param>
 	/// <param name="reason">Reason for disconnection, or <see cref="EResult.OK" /> if the disconnection was initiated by ASF (e.g. as a result of a command).</param>
-	void OnBotDisconnected(Bot bot, EResult reason);
+	Task OnBotDisconnected(Bot bot, EResult reason);
 
 	/// <summary>
 	///     ASF will call this method when bot successfully connects to Steam network.
 	/// </summary>
 	/// <param name="bot">Bot object related to this callback.</param>
-	void OnBotLoggedOn(Bot bot);
+	Task OnBotLoggedOn(Bot bot);
 }

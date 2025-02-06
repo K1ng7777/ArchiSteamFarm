@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +22,7 @@
 // limitations under the License.
 
 using System;
+using System.Threading.Tasks;
 using ArchiSteamFarm.Plugins.Interfaces;
 
 namespace ArchiSteamFarm.Plugins;
@@ -27,7 +30,7 @@ namespace ArchiSteamFarm.Plugins;
 internal abstract class OfficialPlugin : IPlugin {
 	public abstract string Name { get; }
 	public abstract Version Version { get; }
-	public abstract void OnLoaded();
+	public abstract Task OnLoaded();
 
 	internal bool HasSameVersion() => Version == SharedInfo.Version;
 }

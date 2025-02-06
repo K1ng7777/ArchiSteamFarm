@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,33 +24,22 @@
 using System;
 using System.Collections;
 using System.Collections.Specialized;
-using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using ArchiSteamFarm.Collections;
 using ArchiSteamFarm.Core;
-using ArchiSteamFarm.Helpers;
+using ArchiSteamFarm.Helpers.Json;
 using ArchiSteamFarm.Localization;
 using ArchiSteamFarm.Steam.Security;
+using ArchiSteamFarm.Storage;
 using JetBrains.Annotations;
-using Newtonsoft.Json;
 
 namespace ArchiSteamFarm.Steam.Storage;
 
-internal sealed class BotDatabase : SerializableFile {
-	[JsonProperty(Required = Required.DisallowNull)]
-	internal readonly ConcurrentHashSet<uint> FarmingBlacklistAppIDs = new();
-
-	[JsonProperty(Required = Required.DisallowNull)]
-	internal readonly ConcurrentHashSet<uint> FarmingPriorityQueueAppIDs = new();
-
-	[JsonProperty(Required = Required.DisallowNull)]
-	internal readonly ConcurrentHashSet<uint> MatchActivelyBlacklistAppIDs = new();
-
-	[JsonProperty(Required = Required.DisallowNull)]
-	internal readonly ConcurrentHashSet<ulong> TradingBlacklistSteamIDs = new();
-
+public sealed class BotDatabase : GenericDatabase {
 	internal uint GamesToRedeemInBackgroundCount {
 		get {
 			lock (GamesToRedeemInBackground) {
@@ -59,21 +50,38 @@ internal sealed class BotDatabase : SerializableFile {
 
 	internal bool HasGamesToRedeemInBackground => GamesToRedeemInBackgroundCount > 0;
 
-	[JsonProperty(Required = Required.DisallowNull)]
-	private readonly OrderedDictionary GamesToRedeemInBackground = new();
-
-	internal string? LoginKey {
-		get => BackingLoginKey;
+	internal string? AccessToken {
+		get => BackingAccessToken;
 
 		set {
-			if (BackingLoginKey == value) {
+			if (BackingAccessToken == value) {
 				return;
 			}
 
-			BackingLoginKey = value;
+			BackingAccessToken = value;
 			Utilities.InBackground(Save);
 		}
 	}
+
+	[JsonDisallowNull]
+	[JsonInclude]
+	internal ConcurrentHashSet<uint> FarmingBlacklistAppIDs { get; private init; } = [];
+
+	[JsonDisallowNull]
+	[JsonInclude]
+	internal ConcurrentHashSet<uint> FarmingPriorityQueueAppIDs { get; private init; } = [];
+
+	[JsonDisallowNull]
+	[JsonInclude]
+	internal ObservableConcurrentDictionary<uint, DateTime> FarmingRiskyIgnoredAppIDs { get; private init; } = new();
+
+	[JsonDisallowNull]
+	[JsonInclude]
+	internal ConcurrentHashSet<uint> FarmingRiskyPrioritizedAppIDs { get; private init; } = [];
+
+	[JsonDisallowNull]
+	[JsonInclude]
+	internal ConcurrentHashSet<uint> MatchActivelyBlacklistAppIDs { get; private init; } = [];
 
 	internal MobileAuthenticator? MobileAuthenticator {
 		get => BackingMobileAuthenticator;
@@ -88,58 +96,55 @@ internal sealed class BotDatabase : SerializableFile {
 		}
 	}
 
-	[JsonProperty(PropertyName = $"_{nameof(LoginKey)}")]
-	private string? BackingLoginKey;
+	internal string? RefreshToken {
+		get => BackingRefreshToken;
 
-	[JsonProperty(PropertyName = $"_{nameof(MobileAuthenticator)}")]
-	private MobileAuthenticator? BackingMobileAuthenticator;
-
-	private bool SaveNeededDueToMigration;
-
-	[JsonProperty(Required = Required.DisallowNull)]
-	[Obsolete("Available for limited time and only to migrate existing databases")]
-	private ConcurrentHashSet<ulong> BlacklistedFromTradesSteamIDs {
 		set {
-			if (TradingBlacklistSteamIDs.AddRange(value) && string.IsNullOrEmpty(FilePath)) {
-				SaveNeededDueToMigration = true;
+			if (BackingRefreshToken == value) {
+				return;
 			}
+
+			BackingRefreshToken = value;
+			Utilities.InBackground(Save);
 		}
 	}
 
-	[JsonProperty(Required = Required.DisallowNull)]
-	[Obsolete("Available for limited time and only to migrate existing databases")]
-	private ConcurrentHashSet<uint> IdlingBlacklistedAppIDs {
+	internal string? SteamGuardData {
+		get => BackingSteamGuardData;
+
 		set {
-			if (FarmingBlacklistAppIDs.AddRange(value) && string.IsNullOrEmpty(FilePath)) {
-				SaveNeededDueToMigration = true;
+			if (BackingSteamGuardData == value) {
+				return;
 			}
+
+			BackingSteamGuardData = value;
+			Utilities.InBackground(Save);
 		}
 	}
 
-	[JsonProperty(Required = Required.DisallowNull)]
-	[Obsolete("Available for limited time and only to migrate existing databases")]
-	private ConcurrentHashSet<uint> IdlingPriorityAppIDs {
-		set {
-			if (FarmingPriorityQueueAppIDs.AddRange(value) && string.IsNullOrEmpty(FilePath)) {
-				SaveNeededDueToMigration = true;
-			}
-		}
-	}
+	[JsonDisallowNull]
+	[JsonInclude]
+	internal ConcurrentHashSet<ulong> TradingBlacklistSteamIDs { get; private init; } = [];
 
-	[JsonProperty(Required = Required.DisallowNull)]
-	[Obsolete("Available for limited time and only to migrate existing databases")]
-	private ConcurrentHashSet<uint> MatchActivelyBlacklistedAppIDs {
-		set {
-			if (MatchActivelyBlacklistAppIDs.AddRange(value) && string.IsNullOrEmpty(FilePath)) {
-				SaveNeededDueToMigration = true;
-			}
-		}
-	}
+	[JsonInclude]
+	private string? BackingAccessToken { get; set; }
 
-	private BotDatabase(string filePath) {
-		if (string.IsNullOrEmpty(filePath)) {
-			throw new ArgumentNullException(nameof(filePath));
-		}
+	[JsonInclude]
+	[JsonPropertyName($"_{nameof(MobileAuthenticator)}")]
+	private MobileAuthenticator? BackingMobileAuthenticator { get; set; }
+
+	[JsonInclude]
+	private string? BackingRefreshToken { get; set; }
+
+	[JsonInclude]
+	private string? BackingSteamGuardData { get; set; }
+
+	[JsonDisallowNull]
+	[JsonInclude]
+	private OrderedDictionary GamesToRedeemInBackground { get; init; } = new();
+
+	private BotDatabase(string filePath) : this() {
+		ArgumentException.ThrowIfNullOrEmpty(filePath);
 
 		FilePath = filePath;
 	}
@@ -148,21 +153,61 @@ internal sealed class BotDatabase : SerializableFile {
 	private BotDatabase() {
 		FarmingBlacklistAppIDs.OnModified += OnObjectModified;
 		FarmingPriorityQueueAppIDs.OnModified += OnObjectModified;
+		FarmingRiskyIgnoredAppIDs.OnModified += OnObjectModified;
+		FarmingRiskyPrioritizedAppIDs.OnModified += OnObjectModified;
 		MatchActivelyBlacklistAppIDs.OnModified += OnObjectModified;
 		TradingBlacklistSteamIDs.OnModified += OnObjectModified;
 	}
 
+	[PublicAPI]
+	public void DeleteFromJsonStorage(string key) {
+		ArgumentException.ThrowIfNullOrEmpty(key);
+
+		DeleteFromJsonStorage(this, key);
+	}
+
+	[PublicAPI]
+	public void SaveToJsonStorage<T>(string key, T value) where T : notnull {
+		ArgumentException.ThrowIfNullOrEmpty(key);
+		ArgumentNullException.ThrowIfNull(value);
+
+		SaveToJsonStorage(this, key, value);
+	}
+
+	[PublicAPI]
+	public void SaveToJsonStorage(string key, JsonElement value) {
+		ArgumentException.ThrowIfNullOrEmpty(key);
+
+		if (value.ValueKind == JsonValueKind.Undefined) {
+			throw new ArgumentOutOfRangeException(nameof(value));
+		}
+
+		SaveToJsonStorage(this, key, value);
+	}
+
 	[UsedImplicitly]
-	public bool ShouldSerializeBackingLoginKey() => !string.IsNullOrEmpty(BackingLoginKey);
+	public bool ShouldSerializeBackingAccessToken() => !string.IsNullOrEmpty(BackingAccessToken);
 
 	[UsedImplicitly]
 	public bool ShouldSerializeBackingMobileAuthenticator() => BackingMobileAuthenticator != null;
+
+	[UsedImplicitly]
+	public bool ShouldSerializeBackingRefreshToken() => !string.IsNullOrEmpty(BackingRefreshToken);
+
+	[UsedImplicitly]
+	public bool ShouldSerializeBackingSteamGuardData() => !string.IsNullOrEmpty(BackingSteamGuardData);
 
 	[UsedImplicitly]
 	public bool ShouldSerializeFarmingBlacklistAppIDs() => FarmingBlacklistAppIDs.Count > 0;
 
 	[UsedImplicitly]
 	public bool ShouldSerializeFarmingPriorityQueueAppIDs() => FarmingPriorityQueueAppIDs.Count > 0;
+
+	[UsedImplicitly]
+	public bool ShouldSerializeFarmingRiskyIgnoredAppIDs() => !FarmingRiskyIgnoredAppIDs.IsEmpty;
+
+	[UsedImplicitly]
+	public bool ShouldSerializeFarmingRiskyPrioritizedAppIDs() => FarmingRiskyPrioritizedAppIDs.Count > 0;
 
 	[UsedImplicitly]
 	public bool ShouldSerializeGamesToRedeemInBackground() => HasGamesToRedeemInBackground;
@@ -178,6 +223,8 @@ internal sealed class BotDatabase : SerializableFile {
 			// Events we registered
 			FarmingBlacklistAppIDs.OnModified -= OnObjectModified;
 			FarmingPriorityQueueAppIDs.OnModified -= OnObjectModified;
+			FarmingRiskyIgnoredAppIDs.OnModified -= OnObjectModified;
+			FarmingRiskyPrioritizedAppIDs.OnModified -= OnObjectModified;
 			MatchActivelyBlacklistAppIDs.OnModified -= OnObjectModified;
 			TradingBlacklistSteamIDs.OnModified -= OnObjectModified;
 
@@ -189,29 +236,40 @@ internal sealed class BotDatabase : SerializableFile {
 		base.Dispose(disposing);
 	}
 
+	protected override Task Save() => Save(this);
+
 	internal void AddGamesToRedeemInBackground(IOrderedDictionary games) {
 		if ((games == null) || (games.Count == 0)) {
 			throw new ArgumentNullException(nameof(games));
 		}
 
-		bool save = false;
-
 		lock (GamesToRedeemInBackground) {
-			foreach (DictionaryEntry game in games.OfType<DictionaryEntry>().Where(game => !GamesToRedeemInBackground.Contains(game.Key))) {
-				GamesToRedeemInBackground.Add(game.Key, game.Value);
-				save = true;
+			foreach (DictionaryEntry game in games) {
+				if (!IsValidGameToRedeemInBackground(game)) {
+					throw new InvalidOperationException(nameof(game));
+				}
+
+				GamesToRedeemInBackground[game.Key] = game.Value;
 			}
 		}
 
-		if (save) {
-			Utilities.InBackground(Save);
+		Utilities.InBackground(Save);
+	}
+
+	internal void ClearGamesToRedeemInBackground() {
+		lock (GamesToRedeemInBackground) {
+			if (GamesToRedeemInBackground.Count == 0) {
+				return;
+			}
+
+			GamesToRedeemInBackground.Clear();
 		}
+
+		Utilities.InBackground(Save);
 	}
 
 	internal static async Task<BotDatabase?> CreateOrLoad(string filePath) {
-		if (string.IsNullOrEmpty(filePath)) {
-			throw new ArgumentNullException(nameof(filePath));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(filePath);
 
 		if (!File.Exists(filePath)) {
 			return new BotDatabase(filePath);
@@ -223,12 +281,12 @@ internal sealed class BotDatabase : SerializableFile {
 			string json = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
 
 			if (string.IsNullOrEmpty(json)) {
-				ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.ErrorIsEmpty, nameof(json)));
+				ASF.ArchiLogger.LogGenericError(Strings.FormatErrorIsEmpty(nameof(json)));
 
 				return null;
 			}
 
-			botDatabase = JsonConvert.DeserializeObject<BotDatabase>(json);
+			botDatabase = json.ToJsonObject<BotDatabase>();
 		} catch (Exception e) {
 			ASF.ArchiLogger.LogGenericException(e);
 
@@ -236,18 +294,22 @@ internal sealed class BotDatabase : SerializableFile {
 		}
 
 		if (botDatabase == null) {
-			ASF.ArchiLogger.LogNullError(nameof(botDatabase));
+			ASF.ArchiLogger.LogNullError(botDatabase);
+
+			return null;
+		}
+
+		(bool valid, string? errorMessage) = botDatabase.CheckValidation();
+
+		if (!valid) {
+			if (!string.IsNullOrEmpty(errorMessage)) {
+				ASF.ArchiLogger.LogGenericError(errorMessage);
+			}
 
 			return null;
 		}
 
 		botDatabase.FilePath = filePath;
-
-		if (botDatabase.SaveNeededDueToMigration) {
-			botDatabase.SaveNeededDueToMigration = false;
-
-			Utilities.InBackground(botDatabase.Save);
-		}
 
 		return botDatabase;
 	}
@@ -255,17 +317,43 @@ internal sealed class BotDatabase : SerializableFile {
 	internal (string? Key, string? Name) GetGameToRedeemInBackground() {
 		lock (GamesToRedeemInBackground) {
 			foreach (DictionaryEntry game in GamesToRedeemInBackground) {
-				return (game.Key as string, game.Value as string);
+				return game.Value switch {
+					string name => (game.Key as string, name),
+					JsonElement { ValueKind: JsonValueKind.String } jsonElement => (game.Key as string, jsonElement.GetString()),
+					_ => throw new InvalidOperationException(nameof(game.Value))
+				};
 			}
 		}
 
 		return (null, null);
 	}
 
-	internal void RemoveGameToRedeemInBackground(string key) {
-		if (string.IsNullOrEmpty(key)) {
-			throw new ArgumentNullException(nameof(key));
+	internal static bool IsValidGameToRedeemInBackground(DictionaryEntry game) {
+		string? key = game.Key as string;
+
+		if (string.IsNullOrEmpty(key) || !Utilities.IsValidCdKey(key)) {
+			return false;
 		}
+
+		switch (game.Value) {
+			case string name when !string.IsNullOrEmpty(name):
+			case JsonElement { ValueKind: JsonValueKind.String } jsonElement when !string.IsNullOrEmpty(jsonElement.GetString()):
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	internal void PerformMaintenance() {
+		DateTime now = DateTime.UtcNow;
+
+		foreach (uint appID in FarmingRiskyIgnoredAppIDs.Where(entry => entry.Value < now).Select(static entry => entry.Key)) {
+			FarmingRiskyIgnoredAppIDs.Remove(appID);
+		}
+	}
+
+	internal void RemoveGameToRedeemInBackground(string key) {
+		ArgumentException.ThrowIfNullOrEmpty(key);
 
 		lock (GamesToRedeemInBackground) {
 			if (!GamesToRedeemInBackground.Contains(key)) {
@@ -277,6 +365,8 @@ internal sealed class BotDatabase : SerializableFile {
 
 		Utilities.InBackground(Save);
 	}
+
+	private (bool Valid, string? ErrorMessage) CheckValidation() => GamesToRedeemInBackground.Cast<DictionaryEntry>().Any(static game => !IsValidGameToRedeemInBackground(game)) ? (false, Strings.FormatErrorConfigPropertyInvalid(nameof(GamesToRedeemInBackground), string.Join("", GamesToRedeemInBackground))) : (true, null);
 
 	private async void OnObjectModified(object? sender, EventArgs e) {
 		if (string.IsNullOrEmpty(FilePath)) {

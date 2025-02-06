@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,49 +24,44 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Collections.Immutable;
-using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using ArchiSteamFarm.Collections;
 using ArchiSteamFarm.Core;
-using ArchiSteamFarm.Helpers;
+using ArchiSteamFarm.Helpers.Json;
 using ArchiSteamFarm.Localization;
 using ArchiSteamFarm.Steam;
 using ArchiSteamFarm.Steam.SteamKit2;
 using JetBrains.Annotations;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace ArchiSteamFarm.Storage;
 
-public sealed class GlobalDatabase : SerializableFile {
+public sealed class GlobalDatabase : GenericDatabase {
 	[JsonIgnore]
 	[PublicAPI]
 	public IReadOnlyDictionary<uint, ulong> PackageAccessTokensReadOnly => PackagesAccessTokens;
 
 	[JsonIgnore]
 	[PublicAPI]
-	public IReadOnlyDictionary<uint, (uint ChangeNumber, ImmutableHashSet<uint>? AppIDs)> PackagesDataReadOnly => PackagesData;
-
-	[JsonProperty(Required = Required.DisallowNull)]
-	internal readonly InMemoryServerListProvider ServerListProvider = new();
-
-	[JsonProperty(Required = Required.DisallowNull)]
-	private readonly ConcurrentDictionary<string, JToken> KeyValueJsonStorage = new();
-
-	[JsonProperty(Required = Required.DisallowNull)]
-	private readonly ConcurrentDictionary<uint, ulong> PackagesAccessTokens = new();
-
-	[JsonProperty(Required = Required.DisallowNull)]
-	private readonly ConcurrentDictionary<uint, (uint ChangeNumber, ImmutableHashSet<uint>? AppIDs)> PackagesData = new();
+	public IReadOnlyDictionary<uint, PackageData> PackagesDataReadOnly => PackagesData;
 
 	private readonly SemaphoreSlim PackagesRefreshSemaphore = new(1, 1);
 
-	[JsonProperty(Required = Required.DisallowNull)]
+	[JsonInclude]
 	[PublicAPI]
-	public Guid Identifier { get; private set; } = Guid.NewGuid();
+	public Guid Identifier { get; private init; } = Guid.NewGuid();
+
+	[JsonDisallowNull]
+	[JsonInclude]
+	internal ConcurrentHashSet<ulong> CachedBadBots { get; private init; } = [];
+
+	[JsonDisallowNull]
+	[JsonInclude]
+	internal ObservableConcurrentDictionary<uint, byte> CardCountsPerGame { get; private init; } = new();
 
 	internal uint CellID {
 		get => BackingCellID;
@@ -92,77 +89,76 @@ public sealed class GlobalDatabase : SerializableFile {
 		}
 	}
 
-	[JsonProperty(PropertyName = $"_{nameof(CellID)}", Required = Required.DisallowNull)]
-	private uint BackingCellID;
+	[JsonDisallowNull]
+	[JsonInclude]
+	internal InMemoryServerListProvider ServerListProvider { get; private init; } = new();
 
-	[JsonProperty(PropertyName = $"_{nameof(LastChangeNumber)}", Required = Required.DisallowNull)]
-	private uint BackingLastChangeNumber;
+	[JsonInclude]
+	[JsonPropertyName($"_{nameof(CellID)}")]
+	private uint BackingCellID { get; set; }
+
+	[JsonInclude]
+	[JsonPropertyName($"_{nameof(LastChangeNumber)}")]
+	private uint BackingLastChangeNumber { get; set; }
+
+	[JsonDisallowNull]
+	[JsonInclude]
+	private ConcurrentDictionary<uint, ulong> PackagesAccessTokens { get; init; } = new();
+
+	[JsonDisallowNull]
+	[JsonInclude]
+	private ConcurrentDictionary<uint, PackageData> PackagesData { get; init; } = new();
 
 	private GlobalDatabase(string filePath) : this() {
-		if (string.IsNullOrEmpty(filePath)) {
-			throw new ArgumentNullException(nameof(filePath));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(filePath);
 
 		FilePath = filePath;
 	}
 
 	[JsonConstructor]
-	private GlobalDatabase() => ServerListProvider.ServerListUpdated += OnObjectModified;
+	private GlobalDatabase() {
+		CachedBadBots.OnModified += OnObjectModified;
+		CardCountsPerGame.OnModified += OnObjectModified;
+		ServerListProvider.ServerListUpdated += OnObjectModified;
+	}
 
 	[PublicAPI]
 	public void DeleteFromJsonStorage(string key) {
-		if (string.IsNullOrEmpty(key)) {
-			throw new ArgumentNullException(nameof(key));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(key);
 
-		if (!KeyValueJsonStorage.TryRemove(key, out _)) {
-			return;
-		}
-
-		Utilities.InBackground(Save);
+		DeleteFromJsonStorage(this, key);
 	}
 
 	[PublicAPI]
-	public JToken? LoadFromJsonStorage(string key) {
-		if (string.IsNullOrEmpty(key)) {
-			throw new ArgumentNullException(nameof(key));
-		}
+	public void SaveToJsonStorage<T>(string key, T value) where T : notnull {
+		ArgumentException.ThrowIfNullOrEmpty(key);
+		ArgumentNullException.ThrowIfNull(value);
 
-		return KeyValueJsonStorage.TryGetValue(key, out JToken? value) ? value : null;
+		SaveToJsonStorage(this, key, value);
 	}
 
 	[PublicAPI]
-	public void SaveToJsonStorage(string key, JToken value) {
-		if (string.IsNullOrEmpty(key)) {
-			throw new ArgumentNullException(nameof(key));
+	public void SaveToJsonStorage(string key, JsonElement value) {
+		ArgumentException.ThrowIfNullOrEmpty(key);
+
+		if (value.ValueKind == JsonValueKind.Undefined) {
+			throw new ArgumentOutOfRangeException(nameof(value));
 		}
 
-		if (value == null) {
-			throw new ArgumentNullException(nameof(value));
-		}
-
-		if (value.Type == JTokenType.Null) {
-			DeleteFromJsonStorage(key);
-
-			return;
-		}
-
-		if (KeyValueJsonStorage.TryGetValue(key, out JToken? currentValue) && JToken.DeepEquals(currentValue, value)) {
-			return;
-		}
-
-		KeyValueJsonStorage[key] = value;
-		Utilities.InBackground(Save);
+		SaveToJsonStorage(this, key, value);
 	}
 
 	[UsedImplicitly]
 	public bool ShouldSerializeBackingCellID() => BackingCellID != 0;
 
 	[UsedImplicitly]
-	public bool ShouldSerializeBackingLastChangeNumber() => LastChangeNumber != 0;
+	public bool ShouldSerializeBackingLastChangeNumber() => BackingLastChangeNumber != 0;
 
 	[UsedImplicitly]
-	public bool ShouldSerializeKeyValueJsonStorage() => !KeyValueJsonStorage.IsEmpty;
+	public bool ShouldSerializeCachedBadBots() => CachedBadBots.Count > 0;
+
+	[UsedImplicitly]
+	public bool ShouldSerializeCardCountsPerGame() => !CardCountsPerGame.IsEmpty;
 
 	[UsedImplicitly]
 	public bool ShouldSerializePackagesAccessTokens() => !PackagesAccessTokens.IsEmpty;
@@ -176,6 +172,8 @@ public sealed class GlobalDatabase : SerializableFile {
 	protected override void Dispose(bool disposing) {
 		if (disposing) {
 			// Events we registered
+			CachedBadBots.OnModified -= OnObjectModified;
+			CardCountsPerGame.OnModified -= OnObjectModified;
 			ServerListProvider.ServerListUpdated -= OnObjectModified;
 
 			// Those are objects that are always being created if constructor doesn't throw exception
@@ -186,15 +184,15 @@ public sealed class GlobalDatabase : SerializableFile {
 		base.Dispose(disposing);
 	}
 
+	protected override Task Save() => Save(this);
+
 	internal static async Task<GlobalDatabase?> CreateOrLoad(string filePath) {
-		if (string.IsNullOrEmpty(filePath)) {
-			throw new ArgumentNullException(nameof(filePath));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(filePath);
 
 		if (!File.Exists(filePath)) {
 			GlobalDatabase result = new(filePath);
 
-			Utilities.InBackground(result.Save);
+			Utilities.InBackground(() => Save(result));
 
 			return result;
 		}
@@ -205,12 +203,12 @@ public sealed class GlobalDatabase : SerializableFile {
 			string json = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
 
 			if (string.IsNullOrEmpty(json)) {
-				ASF.ArchiLogger.LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.ErrorIsEmpty, nameof(json)));
+				ASF.ArchiLogger.LogGenericError(Strings.FormatErrorIsEmpty(nameof(json)));
 
 				return null;
 			}
 
-			globalDatabase = JsonConvert.DeserializeObject<GlobalDatabase>(json);
+			globalDatabase = json.ToJsonObject<GlobalDatabase>();
 		} catch (Exception e) {
 			ASF.ArchiLogger.LogGenericException(e);
 
@@ -218,7 +216,7 @@ public sealed class GlobalDatabase : SerializableFile {
 		}
 
 		if (globalDatabase == null) {
-			ASF.ArchiLogger.LogNullError(nameof(globalDatabase));
+			ASF.ArchiLogger.LogNullError(globalDatabase);
 
 			return null;
 		}
@@ -228,32 +226,29 @@ public sealed class GlobalDatabase : SerializableFile {
 		return globalDatabase;
 	}
 
-	internal HashSet<uint> GetPackageIDs(uint appID, IEnumerable<uint> packageIDs) {
-		if (appID == 0) {
-			throw new ArgumentOutOfRangeException(nameof(appID));
-		}
+	internal HashSet<uint> GetPackageIDs(uint appID, IEnumerable<uint> packageIDs, int limit = int.MaxValue) {
+		ArgumentOutOfRangeException.ThrowIfZero(appID);
+		ArgumentNullException.ThrowIfNull(packageIDs);
 
-		if (packageIDs == null) {
-			throw new ArgumentNullException(nameof(packageIDs));
-		}
-
-		HashSet<uint> result = new();
+		HashSet<uint> result = [];
 
 		foreach (uint packageID in packageIDs.Where(static packageID => packageID != 0)) {
-			if (!PackagesData.TryGetValue(packageID, out (uint ChangeNumber, ImmutableHashSet<uint>? AppIDs) packagesData) || (packagesData.AppIDs?.Contains(appID) != true)) {
+			if (!PackagesData.TryGetValue(packageID, out PackageData? packageEntry) || (packageEntry.AppIDs?.Contains(appID) != true)) {
 				continue;
 			}
 
 			result.Add(packageID);
+
+			if (result.Count >= limit) {
+				return result;
+			}
 		}
 
 		return result;
 	}
 
 	internal async Task OnPICSChangesRestart(uint currentChangeNumber) {
-		if (currentChangeNumber == 0) {
-			throw new ArgumentOutOfRangeException(nameof(currentChangeNumber));
-		}
+		ArgumentOutOfRangeException.ThrowIfZero(currentChangeNumber);
 
 		if (Bot.Bots == null) {
 			throw new InvalidOperationException(nameof(Bot.Bots));
@@ -300,9 +295,7 @@ public sealed class GlobalDatabase : SerializableFile {
 	}
 
 	internal async Task RefreshPackages(Bot bot, IReadOnlyDictionary<uint, uint> packages) {
-		if (bot == null) {
-			throw new ArgumentNullException(nameof(bot));
-		}
+		ArgumentNullException.ThrowIfNull(bot);
 
 		if ((packages == null) || (packages.Count == 0)) {
 			throw new ArgumentNullException(nameof(packages));
@@ -311,13 +304,15 @@ public sealed class GlobalDatabase : SerializableFile {
 		await PackagesRefreshSemaphore.WaitAsync().ConfigureAwait(false);
 
 		try {
-			HashSet<uint> packageIDs = packages.Where(package => (package.Key != 0) && (!PackagesData.TryGetValue(package.Key, out (uint ChangeNumber, ImmutableHashSet<uint>? AppIDs) previousData) || (previousData.ChangeNumber < package.Value))).Select(static package => package.Key).ToHashSet();
+			DateTime now = DateTime.UtcNow;
+
+			HashSet<uint> packageIDs = packages.Where(package => (package.Key != 0) && (!PackagesData.TryGetValue(package.Key, out PackageData? previousData) || (previousData.ChangeNumber < package.Value) || (previousData.ValidUntil < now))).Select(static package => package.Key).ToHashSet();
 
 			if (packageIDs.Count == 0) {
 				return;
 			}
 
-			Dictionary<uint, (uint ChangeNumber, ImmutableHashSet<uint>? AppIDs)>? packagesData = await bot.GetPackagesData(packageIDs).ConfigureAwait(false);
+			Dictionary<uint, PackageData>? packagesData = await bot.GetPackagesData(packageIDs).ConfigureAwait(false);
 
 			if (packagesData == null) {
 				bot.ArchiLogger.LogGenericWarning(Strings.WarningFailed);
@@ -325,20 +320,11 @@ public sealed class GlobalDatabase : SerializableFile {
 				return;
 			}
 
-			bool save = false;
-
-			foreach ((uint packageID, (uint ChangeNumber, ImmutableHashSet<uint>? AppIDs) packageData) in packagesData) {
-				if (PackagesData.TryGetValue(packageID, out (uint ChangeNumber, ImmutableHashSet<uint>? AppIDs) previousData) && (packageData.ChangeNumber <= previousData.ChangeNumber)) {
-					continue;
-				}
-
+			foreach ((uint packageID, PackageData packageData) in packagesData) {
 				PackagesData[packageID] = packageData;
-				save = true;
 			}
 
-			if (save) {
-				Utilities.InBackground(Save);
-			}
+			Utilities.InBackground(Save);
 		} finally {
 			PackagesRefreshSemaphore.Release();
 		}

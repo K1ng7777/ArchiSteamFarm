@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,12 +22,17 @@
 // limitations under the License.
 
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using ArchiSteamFarm.Steam;
 using ArchiSteamFarm.Steam.Exchange;
 using JetBrains.Annotations;
 
 namespace ArchiSteamFarm.Plugins.Interfaces;
 
+/// <inheritdoc />
+/// <summary>
+///     Implementing this interface allows you to receive information about all processed trades, in particular if you want to fire some logic based on trade offers being handled.
+/// </summary>
 [PublicAPI]
 public interface IBotTradeOfferResults : IPlugin {
 	/// <summary>
@@ -33,5 +40,5 @@ public interface IBotTradeOfferResults : IPlugin {
 	/// </summary>
 	/// <param name="bot">Bot object related to this callback.</param>
 	/// <param name="tradeResults">Trade results related to this callback.</param>
-	void OnBotTradeOfferResults(Bot bot, IReadOnlyCollection<ParseTradeResult> tradeResults);
+	Task OnBotTradeOfferResults(Bot bot, IReadOnlyCollection<ParseTradeResult> tradeResults);
 }

@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,56 +23,78 @@
 
 using System;
 using System.Collections;
+using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Resources;
-using System.Text.RegularExpressions;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using AngleSharp.Dom;
 using AngleSharp.XPath;
 using ArchiSteamFarm.Localization;
+using ArchiSteamFarm.NLog;
 using ArchiSteamFarm.Storage;
 using Humanizer;
-using Humanizer.Localisation;
 using JetBrains.Annotations;
+using Microsoft.IdentityModel.JsonWebTokens;
 using SteamKit2;
-using Zxcvbn;
 
 namespace ArchiSteamFarm.Core;
 
 public static class Utilities {
+	private const byte MaxSharingViolationTries = 15;
+	private const uint SharingViolationHResult = 0x80070020;
 	private const byte TimeoutForLongRunningTasksInSeconds = 60;
+	private const uint UnauthorizedAccessHResult = 0x80070005;
 
-	// normally we'd just use words like "steam" and "farm", but the library we're currently using is a bit iffy about banned words, so we need to also add combinations such as "steamfarm"
-	private static readonly ImmutableHashSet<string> ForbiddenPasswordPhrases = ImmutableHashSet.Create(StringComparer.InvariantCultureIgnoreCase, "archisteamfarm", "archi", "steam", "farm", "archisteam", "archifarm", "steamfarm", "asf", "asffarm", "password");
+	private static readonly FrozenSet<char> DirectorySeparators = new HashSet<char>(2) { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }.ToFrozenSet();
+
+	[PublicAPI]
+	public static IEnumerable<T> AsLinqThreadSafeEnumerable<T>(this ICollection<T> collection) {
+		ArgumentNullException.ThrowIfNull(collection);
+
+		// See: https://github.com/dotnet/runtime/discussions/50687
+		return collection.Select(static entry => entry);
+	}
+
+	[PublicAPI]
+	public static string AsMasked(this string text, char mask = '*') {
+		ArgumentNullException.ThrowIfNull(text);
+
+		return new string(mask, text.Length);
+	}
+
+	[PublicAPI]
+	public static string GenerateChecksumFor(byte[] source) {
+		ArgumentNullException.ThrowIfNull(source);
+
+		byte[] hash = SHA512.HashData(source);
+
+		return Convert.ToHexString(hash);
+	}
 
 	[PublicAPI]
 	public static string GetArgsAsText(string[] args, byte argsToSkip, string delimiter) {
-		if (args == null) {
-			throw new ArgumentNullException(nameof(args));
-		}
+		ArgumentNullException.ThrowIfNull(args);
 
 		if (args.Length <= argsToSkip) {
 			throw new InvalidOperationException($"{nameof(args.Length)} && {nameof(argsToSkip)}");
 		}
 
-		if (string.IsNullOrEmpty(delimiter)) {
-			throw new ArgumentNullException(nameof(delimiter));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(delimiter);
 
 		return string.Join(delimiter, args.Skip(argsToSkip));
 	}
 
 	[PublicAPI]
 	public static string GetArgsAsText(string text, byte argsToSkip) {
-		if (string.IsNullOrEmpty(text)) {
-			throw new ArgumentNullException(nameof(text));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(text);
 
 		string[] args = text.Split(Array.Empty<char>(), argsToSkip + 1, StringSplitOptions.RemoveEmptyEntries);
 
@@ -79,35 +103,21 @@ public static class Utilities {
 
 	[PublicAPI]
 	public static string? GetCookieValue(this CookieContainer cookieContainer, Uri uri, string name) {
-		if (cookieContainer == null) {
-			throw new ArgumentNullException(nameof(cookieContainer));
-		}
-
-		if (uri == null) {
-			throw new ArgumentNullException(nameof(uri));
-		}
-
-		if (string.IsNullOrEmpty(name)) {
-			throw new ArgumentNullException(nameof(name));
-		}
+		ArgumentNullException.ThrowIfNull(cookieContainer);
+		ArgumentNullException.ThrowIfNull(uri);
+		ArgumentException.ThrowIfNullOrEmpty(name);
 
 		CookieCollection cookies = cookieContainer.GetCookies(uri);
 
-#if NETFRAMEWORK
-		return cookies.Count > 0 ? (from Cookie cookie in cookies where cookie.Name == name select cookie.Value).FirstOrDefault() : null;
-#else
-		return cookies.Count > 0 ? cookies.FirstOrDefault(cookie => cookie.Name == name)?.Value : null;
-#endif
+		return cookies.FirstOrDefault(cookie => cookie.Name == name)?.Value;
 	}
 
 	[PublicAPI]
-	public static uint GetUnixTime() => (uint) DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+	public static ulong GetUnixTime() => (ulong) DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
 	[PublicAPI]
 	public static async void InBackground(Action action, bool longRunning = false) {
-		if (action == null) {
-			throw new ArgumentNullException(nameof(action));
-		}
+		ArgumentNullException.ThrowIfNull(action);
 
 		TaskCreationOptions options = TaskCreationOptions.DenyChildAttach;
 
@@ -119,51 +129,33 @@ public static class Utilities {
 	}
 
 	[PublicAPI]
-	public static async void InBackground<T>(Func<T> function, bool longRunning = false) {
-		if (function == null) {
-			throw new ArgumentNullException(nameof(function));
-		}
+	public static void InBackground<T>(Func<T> function, bool longRunning = false) {
+		ArgumentNullException.ThrowIfNull(function);
 
-		TaskCreationOptions options = TaskCreationOptions.DenyChildAttach;
-
-		if (longRunning) {
-			options |= TaskCreationOptions.LongRunning | TaskCreationOptions.PreferFairness;
-		}
-
-		await Task.Factory.StartNew(function, CancellationToken.None, options, TaskScheduler.Default).ConfigureAwait(false);
+		InBackground(void () => function(), longRunning);
 	}
 
 	[PublicAPI]
 	public static async Task<IList<T>> InParallel<T>(IEnumerable<Task<T>> tasks) {
-		if (tasks == null) {
-			throw new ArgumentNullException(nameof(tasks));
-		}
-
-		IList<T> results;
+		ArgumentNullException.ThrowIfNull(tasks);
 
 		switch (ASF.GlobalConfig?.OptimizationMode) {
 			case GlobalConfig.EOptimizationMode.MinMemoryUsage:
-				results = new List<T>();
+				List<T> results = [];
 
 				foreach (Task<T> task in tasks) {
 					results.Add(await task.ConfigureAwait(false));
 				}
 
-				break;
+				return results;
 			default:
-				results = await Task.WhenAll(tasks).ConfigureAwait(false);
-
-				break;
+				return await Task.WhenAll(tasks).ConfigureAwait(false);
 		}
-
-		return results;
 	}
 
 	[PublicAPI]
 	public static async Task InParallel(IEnumerable<Task> tasks) {
-		if (tasks == null) {
-			throw new ArgumentNullException(nameof(tasks));
-		}
+		ArgumentNullException.ThrowIfNull(tasks);
 
 		switch (ASF.GlobalConfig?.OptimizationMode) {
 			case GlobalConfig.EOptimizationMode.MinMemoryUsage:
@@ -183,6 +175,9 @@ public static class Utilities {
 	public static bool IsClientErrorCode(this HttpStatusCode statusCode) => statusCode is >= HttpStatusCode.BadRequest and < HttpStatusCode.InternalServerError;
 
 	[PublicAPI]
+	public static bool IsRedirectionCode(this HttpStatusCode statusCode) => statusCode is >= HttpStatusCode.Ambiguous and < HttpStatusCode.BadRequest;
+
+	[PublicAPI]
 	public static bool IsServerErrorCode(this HttpStatusCode statusCode) => statusCode is >= HttpStatusCode.InternalServerError and < (HttpStatusCode) 600;
 
 	[PublicAPI]
@@ -190,41 +185,58 @@ public static class Utilities {
 
 	[PublicAPI]
 	public static bool IsValidCdKey(string key) {
-		if (string.IsNullOrEmpty(key)) {
-			throw new ArgumentNullException(nameof(key));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(key);
 
-		return Regex.IsMatch(key, @"^[0-9A-Z]{4,7}-[0-9A-Z]{4,7}-[0-9A-Z]{4,7}(?:(?:-[0-9A-Z]{4,7})?(?:-[0-9A-Z]{4,7}))?$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+		return GeneratedRegexes.CdKey().IsMatch(key);
 	}
 
 	[PublicAPI]
 	public static bool IsValidHexadecimalText(string text) {
-		if (string.IsNullOrEmpty(text)) {
-			throw new ArgumentNullException(nameof(text));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(text);
 
 		return (text.Length % 2 == 0) && text.All(Uri.IsHexDigit);
 	}
 
 	[PublicAPI]
-	public static IEnumerable<IElement> SelectNodes(this IDocument document, string xpath) {
-		if (document == null) {
-			throw new ArgumentNullException(nameof(document));
-		}
+	public static IList<INode> SelectNodes(this IDocument document, string xpath) {
+		ArgumentNullException.ThrowIfNull(document);
 
-		return document.Body.SelectNodes(xpath).OfType<IElement>();
+		return document.Body.SelectNodes(xpath);
 	}
 
 	[PublicAPI]
-	public static IElement? SelectSingleElementNode(this IElement element, string xpath) => (IElement?) element.SelectSingleNode(xpath);
+	public static IEnumerable<T> SelectNodes<T>(this IDocument document, string xpath) where T : class, INode {
+		ArgumentNullException.ThrowIfNull(document);
+
+		return document.Body.SelectNodes(xpath).OfType<T>();
+	}
 
 	[PublicAPI]
-	public static IElement? SelectSingleNode(this IDocument document, string xpath) {
-		if (document == null) {
-			throw new ArgumentNullException(nameof(document));
-		}
+	public static IEnumerable<T> SelectNodes<T>(this IElement element, string xpath) where T : class, INode {
+		ArgumentNullException.ThrowIfNull(element);
 
-		return (IElement?) document.Body.SelectSingleNode(xpath);
+		return element.SelectNodes(xpath).OfType<T>();
+	}
+
+	[PublicAPI]
+	public static INode? SelectSingleNode(this IDocument document, string xpath) {
+		ArgumentNullException.ThrowIfNull(document);
+
+		return document.Body.SelectSingleNode(xpath);
+	}
+
+	[PublicAPI]
+	public static T? SelectSingleNode<T>(this IDocument document, string xpath) where T : class, INode {
+		ArgumentNullException.ThrowIfNull(document);
+
+		return document.Body.SelectSingleNode(xpath) as T;
+	}
+
+	[PublicAPI]
+	public static T? SelectSingleNode<T>(this IElement element, string xpath) where T : class, INode {
+		ArgumentNullException.ThrowIfNull(element);
+
+		return element.SelectSingleNode(xpath) as T;
 	}
 
 	[PublicAPI]
@@ -237,9 +249,7 @@ public static class Utilities {
 
 	[PublicAPI]
 	public static Task<T> ToLongRunningTask<T>(this AsyncJob<T> job) where T : CallbackMsg {
-		if (job == null) {
-			throw new ArgumentNullException(nameof(job));
-		}
+		ArgumentNullException.ThrowIfNull(job);
 
 		job.Timeout = TimeSpan.FromSeconds(TimeoutForLongRunningTasksInSeconds);
 
@@ -248,78 +258,130 @@ public static class Utilities {
 
 	[PublicAPI]
 	public static Task<AsyncJobMultiple<T>.ResultSet> ToLongRunningTask<T>(this AsyncJobMultiple<T> job) where T : CallbackMsg {
-		if (job == null) {
-			throw new ArgumentNullException(nameof(job));
-		}
+		ArgumentNullException.ThrowIfNull(job);
 
 		job.Timeout = TimeSpan.FromSeconds(TimeoutForLongRunningTasksInSeconds);
 
 		return job.ToTask();
 	}
 
-	internal static void DeleteEmptyDirectoriesRecursively(string directory) {
-		if (string.IsNullOrEmpty(directory)) {
-			throw new ArgumentNullException(nameof(directory));
+	[PublicAPI]
+	public static bool TryReadJsonWebToken(string token, [NotNullWhen(true)] out JsonWebToken? result) {
+		ArgumentException.ThrowIfNullOrEmpty(token);
+
+		try {
+			result = new JsonWebToken(token);
+		} catch (Exception e) {
+			ASF.ArchiLogger.LogGenericDebuggingException(e);
+
+			result = null;
+
+			return false;
 		}
 
-		if (!Directory.Exists(directory)) {
+		return true;
+	}
+
+	internal static ulong MathAdd(ulong first, int second) {
+		if (second >= 0) {
+			return first + (uint) second;
+		}
+
+		return first - (uint) -second;
+	}
+
+	internal static void OnProgressChanged(string fileName, byte progressPercentage) {
+		ArgumentException.ThrowIfNullOrEmpty(fileName);
+		ArgumentOutOfRangeException.ThrowIfGreaterThan(progressPercentage, 100);
+
+		const byte printEveryPercentage = 10;
+
+		if (progressPercentage % printEveryPercentage != 0) {
 			return;
 		}
 
+		ASF.ArchiLogger.LogGenericDebug($"{fileName} {progressPercentage}%...");
+	}
+
+	internal static async Task<bool> UpdateCleanup(string targetDirectory) {
+		ArgumentException.ThrowIfNullOrEmpty(targetDirectory);
+
+		bool updateCleanup = false;
+
 		try {
-			foreach (string subDirectory in Directory.EnumerateDirectories(directory)) {
-				DeleteEmptyDirectoriesRecursively(subDirectory);
+			string updateDirectory = Path.Combine(targetDirectory, SharedInfo.UpdateDirectoryNew);
+
+			if (Directory.Exists(updateDirectory)) {
+				if (!updateCleanup) {
+					updateCleanup = true;
+
+					ASF.ArchiLogger.LogGenericInfo(Strings.UpdateCleanup);
+				}
+
+				Directory.Delete(updateDirectory, true);
 			}
 
-			if (!Directory.EnumerateFileSystemEntries(directory).Any()) {
-				Directory.Delete(directory);
+			string backupDirectory = Path.Combine(targetDirectory, SharedInfo.UpdateDirectoryOld);
+
+			if (Directory.Exists(backupDirectory)) {
+				if (!updateCleanup) {
+					updateCleanup = true;
+
+					ASF.ArchiLogger.LogGenericInfo(Strings.UpdateCleanup);
+				}
+
+				await DeletePotentiallyUsedDirectory(backupDirectory).ConfigureAwait(false);
 			}
 		} catch (Exception e) {
 			ASF.ArchiLogger.LogGenericException(e);
+
+			return false;
 		}
+
+		if (updateCleanup) {
+			ASF.ArchiLogger.LogGenericInfo(Strings.Done);
+		}
+
+		return true;
 	}
 
-	internal static bool RelativeDirectoryStartsWith(string directory, params string[] prefixes) {
-		if (string.IsNullOrEmpty(directory)) {
-			throw new ArgumentNullException(nameof(directory));
+	internal static async Task<bool> UpdateFromArchive(ZipArchive zipArchive, string targetDirectory) {
+		ArgumentNullException.ThrowIfNull(zipArchive);
+		ArgumentException.ThrowIfNullOrEmpty(targetDirectory);
+
+		// Firstly, ensure once again our directories are purged and ready to work with
+		if (!await UpdateCleanup(targetDirectory).ConfigureAwait(false)) {
+			return false;
 		}
 
-#pragma warning disable CA1508 // False positive, params could be null when explicitly set
-		if ((prefixes == null) || (prefixes.Length == 0)) {
-#pragma warning restore CA1508 // False positive, params could be null when explicitly set
-			throw new ArgumentNullException(nameof(prefixes));
-		}
+		// Now extract the zip file to entirely new location, this decreases chance of corruptions if user kills the process during this stage
+		string updateDirectory = Path.Combine(targetDirectory, SharedInfo.UpdateDirectoryNew);
 
-		return (from prefix in prefixes where directory.Length > prefix.Length let pathSeparator = directory[prefix.Length] where (pathSeparator == Path.DirectorySeparatorChar) || (pathSeparator == Path.AltDirectorySeparatorChar) select prefix).Any(prefix => directory.StartsWith(prefix, StringComparison.Ordinal));
-	}
+		zipArchive.ExtractToDirectory(updateDirectory, true);
 
-	internal static (bool IsWeak, string? Reason) TestPasswordStrength(string password, ISet<string>? additionallyForbiddenPhrases = null) {
-		if (string.IsNullOrEmpty(password)) {
-			throw new ArgumentNullException(nameof(password));
-		}
+		// Now, critical section begins, we're going to move all files from target directory to a backup directory
+		string backupDirectory = Path.Combine(targetDirectory, SharedInfo.UpdateDirectoryOld);
 
-		HashSet<string> forbiddenPhrases = ForbiddenPasswordPhrases.ToHashSet(StringComparer.InvariantCultureIgnoreCase);
+		Directory.CreateDirectory(backupDirectory);
 
-		if (additionallyForbiddenPhrases != null) {
-			forbiddenPhrases.UnionWith(additionallyForbiddenPhrases);
-		}
+		MoveAllUpdateFiles(targetDirectory, backupDirectory);
 
-		Result result = Zxcvbn.Core.EvaluatePassword(password, forbiddenPhrases);
-		FeedbackItem feedback = result.Feedback;
+		// Finally, we can move the newly extracted files to target directory
+		MoveAllUpdateFiles(updateDirectory, targetDirectory, backupDirectory);
 
-		return (result.Score < 4, string.IsNullOrEmpty(feedback.Warning) ? feedback.Suggestions.FirstOrDefault() : feedback.Warning);
+		// Critical section has finished, we can now cleanup the update directory, backup directory must wait for the process restart
+		Directory.Delete(updateDirectory, true);
+
+		// The update process is done
+		return true;
 	}
 
 	internal static void WarnAboutIncompleteTranslation(ResourceManager resourceManager) {
-		if (resourceManager == null) {
-			throw new ArgumentNullException(nameof(resourceManager));
-		}
+		ArgumentNullException.ThrowIfNull(resourceManager);
 
 		// Skip translation progress for English and invariant (such as "C") cultures
 		switch (CultureInfo.CurrentUICulture.TwoLetterISOLanguageName) {
-			case "en":
-			case "iv":
-			case "qps":
+			case "en" or "iv" or "qps":
 				return;
 		}
 
@@ -327,7 +389,7 @@ public static class Utilities {
 		ResourceSet? defaultResourceSet = resourceManager.GetResourceSet(CultureInfo.GetCultureInfo("en-US"), true, true);
 
 		if (defaultResourceSet == null) {
-			ASF.ArchiLogger.LogNullError(nameof(defaultResourceSet));
+			ASF.ArchiLogger.LogNullError(defaultResourceSet);
 
 			return;
 		}
@@ -335,8 +397,8 @@ public static class Utilities {
 		HashSet<DictionaryEntry> defaultStringObjects = defaultResourceSet.Cast<DictionaryEntry>().ToHashSet();
 
 		if (defaultStringObjects.Count == 0) {
-			ASF.ArchiLogger.LogNullError(nameof(defaultStringObjects));
-
+			// This means we don't have entries for English, so there is nothing to check against
+			// Can happen e.g. for plugins with no strings declared which are calling this function
 			return;
 		}
 
@@ -344,7 +406,7 @@ public static class Utilities {
 		ResourceSet? currentResourceSet = resourceManager.GetResourceSet(CultureInfo.CurrentUICulture, true, true);
 
 		if (currentResourceSet == null) {
-			ASF.ArchiLogger.LogNullError(nameof(currentResourceSet));
+			ASF.ArchiLogger.LogNullError(currentResourceSet);
 
 			return;
 		}
@@ -365,7 +427,146 @@ public static class Utilities {
 
 		if (currentStringObjects.Count < defaultStringObjects.Count) {
 			float translationCompleteness = currentStringObjects.Count / (float) defaultStringObjects.Count;
-			ASF.ArchiLogger.LogGenericInfo(string.Format(CultureInfo.CurrentCulture, Strings.TranslationIncomplete, $"{CultureInfo.CurrentUICulture.Name} ({CultureInfo.CurrentUICulture.EnglishName})", translationCompleteness.ToString("P1", CultureInfo.CurrentCulture)));
+			ASF.ArchiLogger.LogGenericInfo(Strings.FormatTranslationIncomplete($"{CultureInfo.CurrentUICulture.Name} ({CultureInfo.CurrentUICulture.EnglishName})", translationCompleteness.ToString("P1", CultureInfo.CurrentCulture)));
 		}
+	}
+
+	private static async Task DeletePotentiallyUsedDirectory(string directory) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+
+		for (byte i = 1; (i <= MaxSharingViolationTries) && Directory.Exists(directory); i++) {
+			if (i > 1) {
+				await Task.Delay(1000).ConfigureAwait(false);
+			}
+
+			try {
+				Directory.Delete(directory, true);
+			} catch (IOException e) when ((i < MaxSharingViolationTries) && ((uint) e.HResult == SharingViolationHResult)) {
+				// It's entirely possible that old process is still running, we allow this to happen and add additional delay
+				ASF.ArchiLogger.LogGenericDebuggingException(e);
+
+				continue;
+			} catch (UnauthorizedAccessException e) when ((i < MaxSharingViolationTries) && ((uint) e.HResult == UnauthorizedAccessHResult)) {
+				// It's entirely possible that old process is still running, we allow this to happen and add additional delay
+				ASF.ArchiLogger.LogGenericDebuggingException(e);
+
+				continue;
+			}
+
+			return;
+		}
+	}
+
+	private static void MoveAllUpdateFiles(string sourceDirectory, string targetDirectory, string? backupDirectory = null) {
+		ArgumentException.ThrowIfNullOrEmpty(sourceDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(targetDirectory);
+
+		// Determine if targetDirectory is within sourceDirectory, if yes we need to skip it from enumeration further below
+		string targetRelativeDirectoryPath = Path.GetRelativePath(sourceDirectory, targetDirectory);
+
+		// We keep user files if backup directory is null, as it means we're creating one
+		bool keepUserFiles = string.IsNullOrEmpty(backupDirectory);
+
+		foreach (string file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories)) {
+			string fileName = Path.GetFileName(file);
+
+			if (string.IsNullOrEmpty(fileName)) {
+				throw new InvalidOperationException(nameof(fileName));
+			}
+
+			string relativeFilePath = Path.GetRelativePath(sourceDirectory, file);
+
+			if (string.IsNullOrEmpty(relativeFilePath)) {
+				throw new InvalidOperationException(nameof(relativeFilePath));
+			}
+
+			string? relativeDirectoryName = Path.GetDirectoryName(relativeFilePath);
+
+			switch (relativeDirectoryName) {
+				case null:
+					throw new InvalidOperationException(nameof(relativeDirectoryName));
+				case "":
+					// No directory, root folder
+					switch (fileName) {
+						case Logging.NLogConfigurationFile when keepUserFiles:
+						case SharedInfo.LogFile when keepUserFiles:
+							// Files with those names in root directory we want to keep
+							continue;
+					}
+
+					break;
+				case SharedInfo.ArchivalLogsDirectory when keepUserFiles:
+				case SharedInfo.ConfigDirectory when keepUserFiles:
+				case SharedInfo.DebugDirectory when keepUserFiles:
+				case SharedInfo.PluginsDirectory when keepUserFiles:
+				case SharedInfo.UpdateDirectoryNew:
+				case SharedInfo.UpdateDirectoryOld:
+					// Files in those constant directories we want to keep in their current place
+					continue;
+				default:
+					// If we're moving files deeper into source location, we need to skip the newly created location from it
+					if (!string.IsNullOrEmpty(targetRelativeDirectoryPath) && ((relativeDirectoryName == targetRelativeDirectoryPath) || RelativeDirectoryStartsWith(relativeDirectoryName, targetRelativeDirectoryPath))) {
+						continue;
+					}
+
+					// Below code block should match the case above, it handles subdirectories
+					if (RelativeDirectoryStartsWith(relativeDirectoryName, SharedInfo.UpdateDirectoryNew, SharedInfo.UpdateDirectoryOld)) {
+						continue;
+					}
+
+					if (keepUserFiles && RelativeDirectoryStartsWith(relativeDirectoryName, SharedInfo.ArchivalLogsDirectory, SharedInfo.ConfigDirectory, SharedInfo.DebugDirectory, SharedInfo.PluginsDirectory)) {
+						continue;
+					}
+
+					break;
+			}
+
+			// We're going to move this file out of the current place, overwriting existing one if needed
+			string targetUpdateDirectory;
+
+			if (relativeDirectoryName.Length > 0) {
+				// File inside a subdirectory
+				targetUpdateDirectory = Path.Combine(targetDirectory, relativeDirectoryName);
+
+				Directory.CreateDirectory(targetUpdateDirectory);
+			} else {
+				// File in root directory
+				targetUpdateDirectory = targetDirectory;
+			}
+
+			string targetUpdateFile = Path.Combine(targetUpdateDirectory, fileName);
+
+			// If target update file exists and we have a backup directory, we should consider moving it to the backup directory regardless whether or not we did that before as part of backup procedure
+			// This achieves two purposes, firstly, we ensure additional backup of user file in case something goes wrong, and secondly, we decrease a possibility of overwriting files that are in-use on Windows, since we move them out of the picture first
+			if (!string.IsNullOrEmpty(backupDirectory) && File.Exists(targetUpdateFile)) {
+				string targetBackupDirectory;
+
+				if (relativeDirectoryName.Length > 0) {
+					// File inside a subdirectory
+					targetBackupDirectory = Path.Combine(backupDirectory, relativeDirectoryName);
+
+					Directory.CreateDirectory(targetBackupDirectory);
+				} else {
+					// File in root directory
+					targetBackupDirectory = backupDirectory;
+				}
+
+				string targetBackupFile = Path.Combine(targetBackupDirectory, fileName);
+
+				File.Move(targetUpdateFile, targetBackupFile, true);
+			}
+
+			File.Move(file, targetUpdateFile, true);
+		}
+	}
+
+	private static bool RelativeDirectoryStartsWith(string directory, params string[] prefixes) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+
+		if ((prefixes == null) || (prefixes.Length == 0)) {
+			throw new ArgumentNullException(nameof(prefixes));
+		}
+
+		return prefixes.Any(prefix => !string.IsNullOrEmpty(prefix) && (directory.Length > prefix.Length) && DirectorySeparators.Contains(directory[prefix.Length]) && directory.StartsWith(prefix, StringComparison.Ordinal));
 	}
 }

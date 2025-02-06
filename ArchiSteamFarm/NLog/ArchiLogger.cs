@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -37,27 +39,23 @@ public sealed class ArchiLogger {
 	private readonly Logger Logger;
 
 	public ArchiLogger(string name) {
-		if (string.IsNullOrEmpty(name)) {
-			throw new ArgumentNullException(nameof(name));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(name);
 
 		Logger = LogManager.GetLogger(name);
 	}
 
 	[PublicAPI]
 	public void LogGenericDebug(string message, [CallerMemberName] string? previousMethodName = null) {
-		if (string.IsNullOrEmpty(message)) {
-			throw new ArgumentNullException(nameof(message));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(message);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
 		Logger.Debug($"{previousMethodName}() {message}");
 	}
 
 	[PublicAPI]
 	public void LogGenericDebuggingException(Exception exception, [CallerMemberName] string? previousMethodName = null) {
-		if (exception == null) {
-			throw new ArgumentNullException(nameof(exception));
-		}
+		ArgumentNullException.ThrowIfNull(exception);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
 		if (!Debugging.IsUserDebugging) {
 			return;
@@ -68,71 +66,63 @@ public sealed class ArchiLogger {
 
 	[PublicAPI]
 	public void LogGenericError(string message, [CallerMemberName] string? previousMethodName = null) {
-		if (string.IsNullOrEmpty(message)) {
-			throw new ArgumentNullException(nameof(message));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(message);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
 		Logger.Error($"{previousMethodName}() {message}");
 	}
 
 	[PublicAPI]
 	public void LogGenericException(Exception exception, [CallerMemberName] string? previousMethodName = null) {
-		if (exception == null) {
-			throw new ArgumentNullException(nameof(exception));
-		}
+		ArgumentNullException.ThrowIfNull(exception);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
 		Logger.Error(exception, $"{previousMethodName}()");
 	}
 
 	[PublicAPI]
 	public void LogGenericInfo(string message, [CallerMemberName] string? previousMethodName = null) {
-		if (string.IsNullOrEmpty(message)) {
-			throw new ArgumentNullException(nameof(message));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(message);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
 		Logger.Info($"{previousMethodName}() {message}");
 	}
 
 	[PublicAPI]
 	public void LogGenericTrace(string message, [CallerMemberName] string? previousMethodName = null) {
-		if (string.IsNullOrEmpty(message)) {
-			throw new ArgumentNullException(nameof(message));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(message);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
 		Logger.Trace($"{previousMethodName}() {message}");
 	}
 
 	[PublicAPI]
 	public void LogGenericWarning(string message, [CallerMemberName] string? previousMethodName = null) {
-		if (string.IsNullOrEmpty(message)) {
-			throw new ArgumentNullException(nameof(message));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(message);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
 		Logger.Warn($"{previousMethodName}() {message}");
 	}
 
 	[PublicAPI]
 	public void LogGenericWarningException(Exception exception, [CallerMemberName] string? previousMethodName = null) {
-		if (exception == null) {
-			throw new ArgumentNullException(nameof(exception));
-		}
+		ArgumentNullException.ThrowIfNull(exception);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
 		Logger.Warn(exception, $"{previousMethodName}()");
 	}
 
 	[PublicAPI]
-	public void LogNullError(string nullObjectName, [CallerMemberName] string? previousMethodName = null) {
-		if (string.IsNullOrEmpty(nullObjectName)) {
-			throw new ArgumentNullException(nameof(nullObjectName));
-		}
+	public void LogNullError(object? nullObject, [CallerArgumentExpression(nameof(nullObject))] string? nullObjectName = null, [CallerMemberName] string? previousMethodName = null) {
+		ArgumentException.ThrowIfNullOrEmpty(nullObjectName);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
-		LogGenericError(string.Format(CultureInfo.CurrentCulture, Strings.ErrorObjectIsNull, nullObjectName), previousMethodName);
+		LogGenericError(Strings.FormatErrorObjectIsNull(nullObjectName), previousMethodName);
 	}
 
 	internal void LogChatMessage(bool echo, string message, ulong chatGroupID = 0, ulong chatID = 0, ulong steamID = 0, [CallerMemberName] string? previousMethodName = null) {
-		if (string.IsNullOrEmpty(message)) {
-			throw new ArgumentNullException(nameof(message));
-		}
+		ArgumentException.ThrowIfNullOrEmpty(message);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
 		if (((chatGroupID == 0) || (chatID == 0)) && (steamID == 0)) {
 			throw new InvalidOperationException($"(({nameof(chatGroupID)} || {nameof(chatID)}) && {nameof(steamID)})");
@@ -163,10 +153,16 @@ public sealed class ArchiLogger {
 		Logger.Log(logEventInfo);
 	}
 
+	internal void LogFatalError(string message, [CallerMemberName] string? previousMethodName = null) {
+		ArgumentException.ThrowIfNullOrEmpty(message);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
+
+		Logger.Fatal($"{previousMethodName}() {message}");
+	}
+
 	internal async Task LogFatalException(Exception exception, [CallerMemberName] string? previousMethodName = null) {
-		if (exception == null) {
-			throw new ArgumentNullException(nameof(exception));
-		}
+		ArgumentNullException.ThrowIfNull(exception);
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
 		Logger.Fatal(exception, $"{previousMethodName}()");
 
@@ -176,7 +172,7 @@ public sealed class ArchiLogger {
 		}
 
 		// Otherwise, we ran into fatal exception before logging module could even get initialized, so activate fallback logging that involves file and console
-		string message = $"{DateTime.Now} {string.Format(CultureInfo.CurrentCulture, Strings.ErrorEarlyFatalExceptionInfo, SharedInfo.Version)}{Environment.NewLine}";
+		string message = $"{DateTime.Now} {Strings.FormatErrorEarlyFatalExceptionInfo(SharedInfo.Version)}{Environment.NewLine}";
 
 		try {
 			await File.WriteAllTextAsync(SharedInfo.LogFile, message).ConfigureAwait(false);
@@ -191,7 +187,7 @@ public sealed class ArchiLogger {
 		}
 
 		while (true) {
-			message = $"{string.Format(CultureInfo.CurrentCulture, Strings.ErrorEarlyFatalExceptionPrint, previousMethodName, exception.Message, exception.StackTrace)}{Environment.NewLine}";
+			message = $"{Strings.FormatErrorEarlyFatalExceptionPrint(previousMethodName, exception.Message, exception.StackTrace)}{Environment.NewLine}";
 
 			try {
 				await File.AppendAllTextAsync(SharedInfo.LogFile, message).ConfigureAwait(false);
@@ -217,8 +213,10 @@ public sealed class ArchiLogger {
 
 	internal void LogInvite(SteamID steamID, bool? handled = null, [CallerMemberName] string? previousMethodName = null) {
 		if ((steamID == null) || (steamID.AccountType == EAccountType.Invalid)) {
-			throw new ArgumentNullException(nameof(steamID));
+			throw new ArgumentOutOfRangeException(nameof(steamID));
 		}
+
+		ArgumentException.ThrowIfNullOrEmpty(previousMethodName);
 
 		ulong steamID64 = steamID;
 

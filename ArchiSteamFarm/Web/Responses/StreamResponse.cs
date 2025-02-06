@@ -1,10 +1,12 @@
+// ----------------------------------------------------------------------------------------------
 //     _                _      _  ____   _                           _____
 //    / \    _ __  ___ | |__  (_)/ ___| | |_  ___   __ _  _ __ ___  |  ___|__ _  _ __  _ __ ___
 //   / _ \  | '__|/ __|| '_ \ | |\___ \ | __|/ _ \ / _` || '_ ` _ \ | |_  / _` || '__|| '_ ` _ \
 //  / ___ \ | |  | (__ | | | || | ___) || |_|  __/| (_| || | | | | ||  _|| (_| || |   | | | | | |
 // /_/   \_\|_|   \___||_| |_||_||____/  \__|\___| \__,_||_| |_| |_||_|   \__,_||_|   |_| |_| |_|
+// ----------------------------------------------------------------------------------------------
 // |
-// Copyright 2015-2021 Łukasz "JustArchi" Domeradzki
+// Copyright 2015-2025 Łukasz "JustArchi" Domeradzki
 // Contact: JustArchi@JustArchi.net
 // |
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,24 +29,38 @@ using JetBrains.Annotations;
 
 namespace ArchiSteamFarm.Web.Responses;
 
-public sealed class StreamResponse : BasicResponse, IAsyncDisposable {
+public sealed class StreamResponse : BasicResponse, IAsyncDisposable, IDisposable {
 	[PublicAPI]
-	public Stream Content { get; }
+	public Stream? Content { get; }
 
 	[PublicAPI]
 	public long Length { get; }
 
 	private readonly HttpResponseMessage ResponseMessage;
 
-	internal StreamResponse(HttpResponseMessage httpResponseMessage, Stream content) : base(httpResponseMessage) {
-		ResponseMessage = httpResponseMessage ?? throw new ArgumentNullException(nameof(httpResponseMessage));
-		Content = content ?? throw new ArgumentNullException(nameof(content));
+	internal StreamResponse(HttpResponseMessage httpResponseMessage, Stream content) : this(httpResponseMessage) {
+		ArgumentNullException.ThrowIfNull(httpResponseMessage);
+		ArgumentNullException.ThrowIfNull(content);
 
+		Content = content;
+	}
+
+	internal StreamResponse(HttpResponseMessage httpResponseMessage) : base(httpResponseMessage) {
+		ArgumentNullException.ThrowIfNull(httpResponseMessage);
+
+		ResponseMessage = httpResponseMessage;
 		Length = httpResponseMessage.Content.Headers.ContentLength.GetValueOrDefault();
 	}
 
+	public void Dispose() {
+		Content?.Dispose();
+		ResponseMessage.Dispose();
+	}
+
 	public async ValueTask DisposeAsync() {
-		await Content.DisposeAsync().ConfigureAwait(false);
+		if (Content != null) {
+			await Content.DisposeAsync().ConfigureAwait(false);
+		}
 
 		ResponseMessage.Dispose();
 	}
